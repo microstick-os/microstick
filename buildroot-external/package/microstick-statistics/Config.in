@@ -1,0 +1,7 @@
+config BR2_PACKAGE_MICROSTICK_STATISTICS
+ bool "microstick statistics default plugin"
+ select BR2_PACKAGE_CJSON
+ select BR2_PACKAGE_LIBMNL
+ select BR2_PACKAGE_LIBNFTNL
+ help
+   Independent optional C traffic collector. LTE durable, Wi-Fi RAM only.

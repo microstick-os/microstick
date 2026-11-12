@@ -1,0 +1,7 @@
+menu "MSM8916 microstick"
+source "$BR2_EXTERNAL_MICROSTICK_PATH/package/microstick-qrtr/Config.in"
+source "$BR2_EXTERNAL_MICROSTICK_PATH/package/microstick-rmtfs/Config.in"
+source "$BR2_EXTERNAL_MICROSTICK_PATH/package/microstick-regdb/Config.in"
+source "$BR2_EXTERNAL_MICROSTICK_PATH/package/microstick-core/Config.in"
+source "$BR2_EXTERNAL_MICROSTICK_PATH/package/microstick-statistics/Config.in"
+endmenu

@@ -1,0 +1,7 @@
+/dev/root / ext4 rw,noauto,noatime 0 1
+proc /proc proc defaults 0 0
+sysfs /sys sysfs defaults 0 0
+devpts /dev/pts devpts mode=0620,ptmxmode=0666,gid=5 0 0
+tmpfs /dev/shm tmpfs mode=1777,nosuid,nodev,size=16m 0 0
+tmpfs /tmp tmpfs mode=1777,nosuid,nodev,size=32m 0 0
+tmpfs /run tmpfs mode=0755,nosuid,nodev,size=24m 0 0

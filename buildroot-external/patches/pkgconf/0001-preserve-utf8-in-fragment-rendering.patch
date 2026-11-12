@@ -1,0 +1,21 @@
+From: Local MSM8916 Buildroot integration
+Subject: [PATCH] Preserve UTF-8 byte sequences when quoting shell fragments
+
+Escaping non-ASCII bytes in UTF-8 paths inserts backslashes inside code
+points, making pkg-config output undecodable by Meson. Shell metacharacters
+are ASCII; apply the existing escaping policy only to ASCII bytes. This also
+avoids signed-char values being classified as control characters.
+
+Upstream: Not submitted (local host compatibility fix for pkgconf 2.3.0)
+--- a/libpkgconf/fragment.c
++++ b/libpkgconf/fragment.c
+@@ -463,7 +463,8 @@ fragment_quote(const pkgconf_fragment_t *frag)
+ 
+ 	for (; *src; src++)
+ 	{
+-		if (((*src < ' ') ||
++		/* Shell metacharacters are ASCII; keep UTF-8 byte sequences intact. */
++		if ((unsigned char)*src < 0x80 && ((*src < ' ') ||
+ 		    (*src >= (' ' + (frag->merged ? 1 : 0)) && *src < '$') ||
+ 		    (*src > '$' && *src < '(') ||
+ 		    (*src > ')' && *src < '+') ||

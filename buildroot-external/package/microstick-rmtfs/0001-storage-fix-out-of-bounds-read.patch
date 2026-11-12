@@ -1,0 +1,44 @@
+From 695d0668ffa6e2a4bf6e676f3c58a444a5d67690 Mon Sep 17 00:00:00 2001
+From: Luca Weiss <luca.weiss@fairphone.com>
+Date: Mon, 21 Mar 2022 17:13:19 +0100
+Subject: [PATCH] storage: fix out of bounds read
+
+Given that shadow_len is size_t (unsigned integer), subtracting a number
+from it will make it wrap around < 0 and become positive again so the
+subsequent "if (n > 0)" check will be mostly useless. On AOSP this makes
+rmtfs segfault, on Linux distributions rmtfs happily reads beyond the
+end of the buf.
+
+Fix this by casting both parameters to ssize_t (which is signed) to
+correctly use the if and not read beyond the end of shadow_buf.
+
+Relevant trace using extra debug statements:
+  storage_populate_shadow_buf: file=/dev/disk/by-partlabel/fsg shadow_buf=0xffffa5217060 shadow_len=0x280000
+  <snip>
+  storage_pread: memcpy shadow_buf=0xffffa5217060 offset=0x27fc00 n=0x200
+  storage_pread: memcpy shadow_buf=0xffffa5217060 offset=0x27fe00 n=0x200
+  storage_pread: memcpy shadow_buf=0xffffa5217060 offset=0x280000 n=0x0 - don't read!
+  storage_pread: memcpy shadow_buf=0xffffa5217060 offset=0x280200 n=0x200
+  storage_pread: memcpy shadow_buf=0xffffa5217060 offset=0x280400 n=0x200
+  storage_pread: memcpy shadow_buf=0xffffa5217060 offset=0x280600 n=0x200
+  storage_pread: memcpy shadow_buf=0xffffa5217060 offset=0x280800 n=0x200
+  <snip>
+
+Signed-off-by: Luca Weiss <luca.weiss@fairphone.com>
+---
+ storage.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/storage.c b/storage.c
+index aaf73d0..107b296 100644
+--- a/storage.c
++++ b/storage.c
+@@ -202,7 +202,7 @@ ssize_t storage_pread(const struct rmtfd *rmtfd, void *buf, size_t nbyte, off_t
+ 	if (!storage_read_only) {
+ 		n = pread(rmtfd->fd, buf, nbyte, offset);
+ 	} else {
+-		n = MIN(nbyte, rmtfd->shadow_len - offset);
++		n = MIN((ssize_t)nbyte, (ssize_t)rmtfd->shadow_len - offset);
+ 		if (n > 0)
+ 			memcpy(buf, (char*)rmtfd->shadow_buf + offset, n);
+ 		else

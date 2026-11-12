@@ -1,0 +1,10 @@
+#!/bin/sh
+case "$1" in
+ start)
+  if ! /usr/libexec/microstick-data start; then
+   echo 'microstick: /data unavailable; plugins blocked; USB/SSH remain available' >&2
+  fi
+  ;;
+ stop) : ;; # plugin shutdown precedes unmount by the normal system shutdown
+ *) exit 2 ;;
+esac

@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+umask 077
+if [ ! -f "$MICROSTICK_PLUGIN_DATA/auth.json" ]; then
+ cp ./default-auth.json "$MICROSTICK_PLUGIN_DATA/auth.json"
+ chown 405:405 "$MICROSTICK_PLUGIN_DATA" "$MICROSTICK_PLUGIN_DATA/auth.json"
+fi
+chmod 700 "$MICROSTICK_PLUGIN_DATA"
+export LD_LIBRARY_PATH="$MICROSTICK_PLUGIN_DIR/lib"
+exec ./bin/microstick-web

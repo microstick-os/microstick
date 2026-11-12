@@ -1,0 +1,3 @@
+config BR2_PACKAGE_MICROSTICK_QRTR
+	bool "Qualcomm IPC router tools (QRTR)"
+	depends on BR2_TOOLCHAIN_HAS_THREADS

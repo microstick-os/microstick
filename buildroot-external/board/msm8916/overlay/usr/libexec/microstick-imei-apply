@@ -1,0 +1,24 @@
+#!/bin/sh
+# Run before ModemManager enables the radio. rmtfs keeps modem NV writes in RAM.
+set -eu
+umask 077
+run=${MICROSTICK_RUN:-/run/microstick}
+etc=${MICROSTICK_ETC:-/etc/microstick}
+helper=${MICROSTICK_IMEI_NV:-/usr/libexec/microstick-imei-nv}
+desired="$etc/imei.json"
+[ -s "$desired" ] || desired=${MICROSTICK_DEFAULT_IMEI:-/usr/share/microstick/default-imei.json}
+[ -s "$desired" ] || { rm -f "$run/imei-error"; exit 0; }
+if [ ! -s "$etc/imei-original.json" ]; then
+ if ! "$helper" read > "$run/imei-original-read.json"; then
+  echo imei_unavailable > "$run/imei-error"; exit 1
+ fi
+ jq -e '{imei:.current} | select(.imei | type=="string" and length==15)' "$run/imei-original-read.json" > "$etc/imei-original.json.new"
+ mv "$etc/imei-original.json.new" "$etc/imei-original.json"
+fi
+if ! "$helper" set < "$desired" > "$run/imei-result.json.new"; then
+ jq -r '.error // "imei_apply_failed"' "$run/imei-result.json.new" > "$run/imei-error"
+ mv "$run/imei-result.json.new" "$run/imei-result.json"
+ exit 1
+fi
+mv "$run/imei-result.json.new" "$run/imei-result.json"
+rm -f "$run/imei-error"

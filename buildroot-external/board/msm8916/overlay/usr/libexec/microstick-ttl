@@ -1,0 +1,42 @@
+#!/bin/sh
+# Own only this nft table. A failed transaction leaves the previous rules intact.
+set -eu
+umask 077
+run=${MICROSTICK_RUN:-/run/microstick}
+etc=${MICROSTICK_ETC:-/etc/microstick}
+nft=${MICROSTICK_NFT:-nft}
+mkdir -p "$run"
+exec 8>"$run/ttl.lock"
+flock 8
+FIX_TTL_ENABLED=yes
+FIX_TTL_VALUE=64
+config=${MICROSTICK_TTL_CONFIG:-$etc/ttl.conf}
+[ ! -r "$config" ] || . "$config"
+case "$FIX_TTL_ENABLED" in yes|no) ;; *) exit 2;; esac
+case "$FIX_TTL_VALUE" in ''|*[!0-9]*) exit 2;; esac
+FIX_TTL_VALUE=$(printf '%s' "$FIX_TTL_VALUE" | sed 's/^0*//')
+[ -n "$FIX_TTL_VALUE" ] || exit 2
+[ "$FIX_TTL_VALUE" -ge 1 ] && [ "$FIX_TTL_VALUE" -le 255 ] || exit 2
+key="$FIX_TTL_ENABLED:$FIX_TTL_VALUE"
+if [ -z "${MICROSTICK_NFT:-}" ]; then
+ if ! modprobe nf_tables || ! modprobe nft_counter; then
+  echo ttl_apply_failed > "$run/ttl-error"
+  exit 1
+ fi
+fi
+if [ "${MICROSTICK_TTL_FORCE:-no}" != yes ] && [ "$(cat "$run/ttl-applied" 2>/dev/null || :)" = "$key" ] && "$nft" list table ip microstick_ttl >/dev/null 2>&1; then exit 0; fi
+{
+ echo 'add table ip microstick_ttl'
+ echo 'flush table ip microstick_ttl'
+ echo 'add chain ip microstick_ttl postrouting { type filter hook postrouting priority -150; policy accept; }'
+ if [ "$FIX_TTL_ENABLED" = yes ]; then
+  printf 'add rule ip microstick_ttl postrouting oifname "wwan*" ip ttl set %s counter\n' "$FIX_TTL_VALUE"
+ fi
+} > "$run/ttl.nft"
+if ! "$nft" -f "$run/ttl.nft" >"$run/ttl-output" 2>&1; then
+ echo ttl_apply_failed > "$run/ttl-error"
+ exit 1
+fi
+rm -f "$run/ttl-error" "$run/ttl-output"
+printf '%s\n' "$key" > "$run/ttl-applied.new"
+mv "$run/ttl-applied.new" "$run/ttl-applied"

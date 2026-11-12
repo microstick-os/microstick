@@ -1,0 +1,100 @@
+#!/bin/sh
+set -eu
+umask 022
+# Check before mkdir, seeding, cleanup, rescans or starting a watcher.
+/usr/libexec/microstick-data check || { echo '/data unavailable: plugins blocked' >&2; exit 1; }
+base=/data/plugins
+runtime=/run/microstick/plugins
+mkdir -p "$base" /data/.default-plugins "$runtime"
+chmod 700 /data/.default-plugins
+exec 9>/run/microstick/plugins.lock
+flock 9
+seed() {
+ if [ ! -e "$base/README.md" ] && [ -f /usr/share/microstick/default-plugins/README.md ]; then
+  cp /usr/share/microstick/default-plugins/README.md "$base/README.md"
+ fi
+ for src in /usr/share/microstick/default-plugins/*; do
+  [ -d "$src" ] && [ -x "$src/run" ] || continue
+  id=${src##*/}
+  [ ! -f "/data/.default-plugins/$id" ] || continue
+  if [ ! -e "$base/$id" ]; then
+   tmp="$base/.$id.install"
+   rm -rf "$tmp"
+   cp -a "$src" "$tmp"
+   mv "$tmp" "$base/$id"
+  fi
+  touch "/data/.default-plugins/$id"
+ done
+}
+valid() {
+ [ -d "$1" ] && [ ! -L "$1" ] && [ -x "$1/run" ] && [ ! -L "$1/run" ] && [ ! -e "$1/disabled" ] || return 1
+ [ "$(ls -dn "$1" | awk '{print $3}')" = 0 ] && [ "$(ls -dn "$1/run" | awk '{print $3}')" = 0 ] || return 1
+ [ -z "$(find "$1" -maxdepth 1 \( -perm -002 -o -perm -020 \) -print)" ]
+}
+cleanup() {
+ service=$1
+ id=${service##*/}
+ if [ -x "$service/cleanup" ]; then
+  MICROSTICK_PLUGIN_DIR="$base/$id" MICROSTICK_PLUGIN_DATA="$base/$id/.state" MICROSTICK_PLUGIN_RUNTIME="$service/runtime" "$service/cleanup"
+ fi
+}
+prune() {
+ for service in "$runtime"/*; do
+  [ -d "$service" ] || continue
+  id=${service##*/}
+  valid "$base/$id" && continue
+  if [ -d "$service/supervise" ] && ! sv -w 10 force-stop "$service" >/dev/null 2>&1; then
+   echo "Cannot stop plugin $id; retaining supervisor" >&2
+   continue
+  fi
+  cleanup "$service" || :
+  rm -rf "$service"
+ done
+}
+scan() {
+ for dir in "$base"/*; do
+  [ -d "$dir" ] && [ ! -L "$dir" ] && [ -x "$dir/run" ] || continue
+  id=${dir##*/}
+  case "$id" in *[!a-zA-Z0-9_-]*) continue;; esac
+  valid "$dir" || continue
+  if [ ! -e "$dir/.state" ] && [ -d "/data/plugin-state/$id" ] && [ ! -L "/data/plugin-state/$id" ]; then
+   mv "/data/plugin-state/$id" "$dir/.state"
+  fi
+  mkdir -p "$dir/.state" "$runtime/$id/runtime"
+  # Optional cleanup is a self-contained executable owned by the plugin, kept in RAM.
+  if [ -f "$dir/cleanup" ] && [ ! -L "$dir/cleanup" ] && [ "$(ls -dn "$dir/cleanup" | awk '{print $3}')" = 0 ] && [ -z "$(find "$dir/cleanup" \( -perm -002 -o -perm -020 \) -print)" ]; then
+   cp "$dir/cleanup" "$runtime/$id/cleanup.new"
+   chmod 700 "$runtime/$id/cleanup.new"
+   mv "$runtime/$id/cleanup.new" "$runtime/$id/cleanup"
+  else
+   rm -f "$runtime/$id/cleanup"
+  fi
+  cat > "$runtime/$id/run.new" <<EOF
+#!/bin/sh
+cd '$dir' || exit 1
+export MICROSTICK_PLUGIN_DIR='$dir'
+export MICROSTICK_PLUGIN_DATA='$dir/.state'
+export MICROSTICK_PLUGIN_RUNTIME='$runtime/$id/runtime'
+export MICROSTICK_CORE_SOCKET='/run/microstick/control.sock'
+export MICROSTICK_CORE_API=1
+exec ./run
+EOF
+  chmod 755 "$runtime/$id/run.new"
+  mv "$runtime/$id/run.new" "$runtime/$id/run"
+ done
+}
+if [ "${1:-}" = stop ]; then
+ id=${2:-}
+ case "$id" in ''|*[!a-zA-Z0-9_-]*) exit 2;; esac
+ service=$runtime/$id
+ [ -d "$service" ] || exit 0
+ sv -w 10 down "$service"
+ cleanup "$service"
+ exit 0
+fi
+seed
+prune
+scan
+[ "${1:-}" != rescan ] || exit 0
+exec 9>&-
+exec /usr/libexec/microstick-plugin-watch "$base" "$runtime" /usr/libexec/microstick-plugins

@@ -1,0 +1,88 @@
+#!/bin/sh
+# Storage initialization is local and precedes all plugin writes.
+set -eu
+umask 077
+conf=/etc/microstick/data-partuuid
+contract=/etc/microstick/storage.json
+state=/var/lib/microstick/first-boot
+[ -f "$conf" ] || exit 0
+uuid=$(cat "$conf")
+case "$uuid" in ????????-????-????-????-????????????) ;; *) exit 1;; esac
+case "$uuid" in *[!a-fA-F0-9-]*) exit 1;; esac
+wanted=$(blkid -t "PARTUUID=$uuid" -o device 2>/dev/null) || exit 1
+[ -n "$wanted" ] || exit 1
+case "$wanted" in *' '*|*'
+'*) exit 1;; esac
+mounted() {
+ actual=$(awk '$2=="/data" && $3=="ext4" && ("," $4 ",") ~ /,rw,/ {print $1}' /proc/mounts)
+ [ -n "$actual" ] && [ "$(readlink -f "$actual")" = "$(readlink -f "$wanted")" ]
+}
+checkpoint() {
+ # Sync filesystem contents before publishing and sync the rename afterwards.
+ printf '%s\n' "$1" > "$state.new"
+ sync
+ mv "$state.new" "$state"
+ sync
+}
+initialize() {
+ [ -f "$contract" ] || return 0
+ jq -e '.schema_version == 1 and (.mode == "format" or .mode == "preserve")' "$contract" >/dev/null
+ [ "$(jq -r .partuuid "$contract")" = "$uuid" ]
+ id=$(jq -r .installation "$contract")
+ case "$id" in ''|*[!a-f0-9]*) return 1;; esac
+ [ ${#id} = 32 ]
+ expected=$(jq -r .fs_uuid "$contract")
+ case "$expected" in ????????-????-????-????-????????????) ;; *) return 1;; esac
+ case "$expected" in *[!a-f0-9-]*) return 1;; esac
+ [ -b "$wanted" ]
+ block=${wanted##*/}
+ sectors=$(cat "/sys/class/block/$block/size")
+ [ "$((sectors * 512))" = "$(jq -r .bytes "$contract")" ]
+ [ ! -L "$state" ] && [ ! -L "$state.new" ]
+ phase=pending
+ if [ -e "$state" ]; then
+  read -r saved phase < "$state"
+  [ "$saved" = "$id" ]
+ fi
+ case "$phase" in pending|running|formatted|done) ;; *) return 1;; esac
+ mode=$(jq -r .mode "$contract")
+ if [ "$mode" = format ]; then
+  case "$phase" in
+   pending|running)
+    checkpoint "$id running"
+    actual_uuid=$(blkid -p -s UUID -o value "$wanted" 2>/dev/null || :)
+    if [ "$actual_uuid" != "$expected" ]; then
+     mke2fs -q -F -t ext4 -b 4096 -m 0 -L microstick-data -U "$expected" -O '^64bit,^metadata_csum_seed,^orphan_file' -E lazy_itable_init=0,lazy_journal_init=0 "$wanted"
+    fi
+    # A matching new filesystem is checked, never reformatted on a later error.
+    result=0; e2fsck -p "$wanted" || result=$?
+    [ "$result" -le 1 ]
+    checkpoint "$id formatted"
+    ;;
+  esac
+  [ "$(blkid -p -s UUID -o value "$wanted")" = "$expected" ]
+ fi
+ # Preserve never derives permission to format from a mount/FS failure.
+}
+apply_data() {
+ [ -f "$contract" ] || return 0
+ [ "$phase" != done ] || return 0
+ /usr/libexec/microstick-data-update
+ checkpoint "$id done"
+}
+case "${1:-check}" in
+ check) mounted ;;
+ start)
+  if ! mounted; then
+   ! awk '$2=="/data" {found=1} END {exit !found}' /proc/mounts || exit 1
+   initialize
+   mount -t ext4 -o rw,noatime,nodev,nosuid "$wanted" /data
+   mounted
+  else
+   # Never allow a first invocation to format an already mounted filesystem.
+   [ ! -f "$contract" ] || { read -r id phase < "$state"; [ "$phase" = done ]; }
+  fi
+  apply_data
+  ;;
+ *) exit 2 ;;
+esac

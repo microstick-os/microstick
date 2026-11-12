@@ -1,0 +1,196 @@
+#!/bin/sh
+# Independent LAN supervisor and strictly typed configuration adapter.
+set -eu
+umask 077
+r=${MICROSTICK_RUN:-/run/microstick}
+e=${MICROSTICK_ETC:-/etc/microstick}
+native=${MICROSTICK_ROUTER_DAEMON:-/usr/libexec/microstick-routerd}
+if [ "${1:-}" = run ]; then exec "$native"; fi
+if [ "${MICROSTICK_ROUTER_WORKER:-no}" != yes ] && [ -S "$r/router.sock" ]; then
+ case "${1:-}" in
+  stage|confirm|cancel|firewall|mode|tick|apply-firewall) exec "$native" --request "$@" ;;
+ esac
+fi
+data=${MICROSTICK_ROUTER_DATA:-/usr/share/microstick/router}
+self=${MICROSTICK_ROUTER:-/usr/libexec/microstick-router}
+mkdir -p "$r"
+. "$e/network.conf"
+usb=$(cat "$r/usb-iface" 2>/dev/null || echo usb0)
+wifi=$(cat "$r/wifi-interface" 2>/dev/null || echo unavailable)
+mode=$(cat "$r/lan-mode" 2>/dev/null || echo off)
+clock() { cut -d. -f1 "${MICROSTICK_UPTIME:-/proc/uptime}"; }
+error() { jq -cn --arg error "$1" --arg field "${2:-}" '{ok:false,error:$error,field:$field}'; exit 1; }
+base_config() {
+ if [ -f "$e/lan.json" ]; then cat "$e/lan.json"; else
+ jq -cn --arg usb "$USB_ADDRESS" --arg ap "$AP_ADDRESS" '
+ def net($ip): ($ip|split("/")[0]|split(".")[0:3]|join(".")) as $p |
+ {address:$ip,enabled:true,start:($p+".10"),end:($p+".200"),lease:3600,dns:[]};
+ {usb:net($usb),ap:net($ap),reservations:[]}'
+ fi
+}
+effective() { if [ -f "$r/lan-pending.json" ]; then jq -c .config "$r/lan-pending.json"; else base_config; fi; }
+validate() {
+ jq -c --arg kind "$1" -f "$data/validate.jq" "$2" > "$r/router-validation.json" || { error "invalid_$1"; }
+ if ! jq -e .ok "$r/router-validation.json" >/dev/null; then cat "$r/router-validation.json"; exit 1; fi
+ jq -c .config "$r/router-validation.json"
+}
+# A timed-out candidate is never persisted. /run loss on boot restores committed LAN.
+expire() {
+ if [ -f "$r/lan-pending.json" ] && [ "$(clock)" -ge "$(jq -r .deadline "$r/lan-pending.json")" ]; then
+  rm -f "$r/lan-pending.json"
+  echo lan_reverted > "$r/router-notice"
+ fi
+}
+collect() {
+ if [ "${MICROSTICK_ROUTER_WORKER:-no}" = yes ]; then return 0; fi
+ ip -j -4 neigh show > "$r/neighbors.json.tmp" 2>/dev/null || echo '[]' > "$r/neighbors.json.tmp"
+ awk 'NF>=4 {print $1 "\t" $2 "\t" $3 "\t" $4}' "$r/dnsmasq.leases" 2>/dev/null | jq -Rn '[inputs|split("\t")|{expires:(.[0]|tonumber),mac:(.[1]|ascii_downcase),ip:.[2],hostname:(if .[3]=="*" then "" else .[3] end)}]' > "$r/leases.json.tmp"
+ iw dev "$wifi" station dump 2>/dev/null | awk '/^Station / {print tolower($2)}' | jq -Rn '[inputs]' > "$r/stations.json.tmp"
+ effective > "$r/lan-effective.json.tmp"
+ jq -cn --arg usb "$usb" --arg wifi "$wifi" --arg mode "$mode" --argjson now "$(date +%s)" \
+ --slurpfile lan "$r/lan-effective.json.tmp" --slurpfile ns "$r/neighbors.json.tmp" --slurpfile leases "$r/leases.json.tmp" --slurpfile stations "$r/stations.json.tmp" '
+ def ipnum: split(".")|map(tonumber)|reduce .[] as $n (0;.*256+$n);
+ def subnet($address): ($address|split("/")) as $a | pow(2;32-($a[1]|tonumber)) as $b | ((ipnum/$b)|floor)==((($a[0]|ipnum)/$b)|floor);
+ $lan[0] as $l |
+ ([ $ns[0][] | select(.dev==$usb or ($mode=="ap" and .dev==$wifi)) | select(.lladdr!=null) |
+ {network:(if .dev==$usb then "usb" else "ap" end),mac:(.lladdr|ascii_downcase),ip:.dst,hostname:"",expires:0,
+ active:(any(.state[]?; .=="REACHABLE" or .=="DELAY" or .=="PROBE")),priority:(if any(.state[]?; .=="REACHABLE" or .=="DELAY" or .=="PROBE") then 3 else 1 end)} ] +
+ [ $leases[0][] | select(.expires==0 or .expires>$now) | . as $lease | ["usb","ap"][] as $key |
+ select(.ip|subnet($l[$key].address)) | .+{network:$key,active:false,priority:2} ] +
+ [ $l.reservations[] | .+{hostname:"",expires:0,active:false,priority:0} ] +
+ [ $stations[0][] | {network:"ap",mac:.,ip:"",hostname:"",expires:0,active:true} ]) |
+ . as $rows | ($rows|map(select(.ip!=""))|group_by([.network,.ip])|map(max_by(.priority//0))) as $owners |
+ group_by([.network,.mac]) | map(. as $group | .[0] as $first |
+ ($l.reservations|map(select(.network==$first.network and .mac==$first.mac))|.[0]) as $saved |
+ {network:$first.network,mac:$first.mac,name:($saved.name//""),ip:([$owners[]|select(.network==$first.network and .mac==$first.mac)|.ip]|unique|join(", ")),
+ ips:([$owners[]|select(.network==$first.network and .mac==$first.mac)|.ip]|unique),hostname:(([$group[].hostname|select(.!="")]|.[0]//"")[0:64]),
+ reserved:(($saved.ip//"")!=""),expires:([$group[].expires]|max),
+ activity:(if $mode=="ap" and $first.network=="ap" and ($stations[0]|index($first.mac))!=null then "connected" elif any($group[];.active) then "recent" else "lease_only" end)} ) | sort_by(.network,.name,.mac)' > "$r/clients-all.json.new"
+ mv "$r/clients-all.json.new" "$r/clients-all.json"
+}
+publish() {
+ [ "${MICROSTICK_ROUTER_WORKER:-no}" != yes ] || return 0
+ "$self" public > "$r/lan-public.json.new"
+ "$self" firewall_config > "$r/firewall-public.json.new"
+ chmod 644 "$r/lan-public.json.new" "$r/firewall-public.json.new"
+ mv "$r/lan-public.json.new" "$r/lan-public.json"
+ mv "$r/firewall-public.json.new" "$r/firewall-public.json"
+}
+apply() {
+ effective > "$r/lan-effective.json.tmp"
+ # All addresses come from the same effective config; only our old address is removed.
+ for key in usb ap; do
+  if [ "$key" = usb ]; then iface=$usb; else iface=$wifi; fi
+  address=$(jq -r --arg key "$key" '.[$key].address' "$r/lan-effective.json.tmp")
+  old=$(cat "$r/lan-address-$key" 2>/dev/null || :)
+  if [ "$key" = ap ] && [ "$mode" != ap ]; then address=''; fi
+  if [ "$old" != "$address" ] && [ -n "$old" ]; then ip -4 addr del "$old" dev "$iface" 2>/dev/null || :; fi
+  if [ -n "$address" ] && ip link show dev "$iface" >/dev/null 2>&1; then
+   ip link set "$iface" up || return 1
+   if ! ip -o -4 addr show dev "$iface" | grep -Fq "inet $address "; then
+    ip -4 addr replace "$address" dev "$iface" || return 1
+   fi
+  fi
+  printf '%s\n' "$address" > "$r/lan-address-$key"
+ done
+ jq -r '.reservations[]|select(.ip!="")|.mac+","+.ip' "$r/lan-effective.json.tmp" > "$r/dhcp-hosts.new"
+ [ -f "$r/dhcp-hosts" ] || touch "$r/dhcp-hosts"
+ hosts_changed=no
+ if ! cmp -s "$r/dhcp-hosts.new" "$r/dhcp-hosts"; then mv "$r/dhcp-hosts.new" "$r/dhcp-hosts"; hosts_changed=yes; fi
+ jq -r --arg run "$r" --arg usb "$usb" --arg wifi "$wifi" --arg mode "$mode" -f "$data/render.jq" "$r/lan-effective.json.tmp" > "$r/dnsmasq.conf.new"
+ touch "$r/upstream-resolv.conf"
+ alive=no
+ if [ -r "$r/dnsmasq.pid" ] && kill -0 "$(cat "$r/dnsmasq.pid")" 2>/dev/null; then alive=yes; fi
+ if [ "$alive" = no ] || ! cmp -s "$r/dnsmasq.conf.new" "$r/dnsmasq.conf"; then
+  dnsmasq --test --conf-file="$r/dnsmasq.conf.new" >/dev/null 2>"$r/dhcp-test-error" || return 1
+  if [ "$alive" = yes ]; then
+   kill "$(cat "$r/dnsmasq.pid")"
+   n=0; while kill -0 "$(cat "$r/dnsmasq.pid")" 2>/dev/null && [ "$n" -lt 20 ]; do sleep .1; n=$((n+1)); done
+  fi
+  mv "$r/dnsmasq.conf.new" "$r/dnsmasq.conf"
+  dnsmasq --conf-file="$r/dnsmasq.conf" --pid-file="$r/dnsmasq.pid" 8>&- || return 1
+ elif [ "$hosts_changed" = yes ]; then kill -HUP "$(cat "$r/dnsmasq.pid")"; fi
+ collect || return 1
+ MICROSTICK_LAN_CONFIG="$r/lan-effective.json.tmp" "${MICROSTICK_FIREWALL:-/usr/libexec/microstick-firewall}" "$(cat "$r/uplink" 2>/dev/null || :)" || return 1
+ sha256sum "$r/lan-effective.json.tmp" | cut -d' ' -f1 > "$r/lan-applied"
+ rm -f "$r/router-error"
+ if [ "${MICROSTICK_ROUTER_WORKER:-no}" = yes ]; then "$native" --stamp lan; fi
+ publish
+}
+case "${1:-}" in
+ config) effective; exit ;;
+ saved) base_config; exit ;;
+ firewall_config) if [ -f "$e/firewall.json" ]; then cat "$e/firewall.json"; else echo '{"rules":[]}'; fi; exit ;;
+ validate) validate "$2" "$3"; exit ;;
+ addresses) effective | jq -r '[.usb.address,.ap.address]|.[]'; exit ;;
+ public)
+  config=$(effective)
+  pending='null'
+  if [ -f "$r/lan-pending.json" ]; then pending=$(jq -c --argjson now "$(clock)" '{token,remaining:([0,.deadline-$now]|max)}' "$r/lan-pending.json"); fi
+  jq -cn --argjson config "$config" --argjson pending "$pending" --arg mode "$mode" --arg error "$(cat "$r/router-error" 2>/dev/null || :)" --arg notice "$(cat "$r/router-notice" 2>/dev/null || :)" '{config:$config,pending:$pending,wifi_mode:$mode,error:$error,notice:$notice}'; exit ;;
+ clients)
+  page=${2:-0}; case "$page" in ''|*[!0-9]*) page=0;; esac
+  [ "$page" -le 10000 ] || page=0
+  [ -f "$r/clients-all.json" ] || echo '[]' > "$r/clients-all.json"
+  jq -c --argjson page "$page" '{clients: .[$page*32:($page+1)*32],page:$page,total:length}' "$r/clients-all.json"; exit ;;
+ *)
+  exec 8>"$r/router.lock"; flock -x 8
+  expire
+  case "$1" in
+   tick|mode)
+    if [ "$1" = mode ]; then case "$2" in ap|sta|off) mode=$2;; *) exit 1;; esac; printf '%s\n' "$mode" > "$r/lan-mode"; fi
+    if ! apply; then
+     echo router_apply_failed > "$r/router-error"
+     if [ -f "$r/lan-pending.json" ]; then rm -f "$r/lan-pending.json"; apply || :; fi
+     exit 1
+    fi ;;
+   stage)
+    [ ! -f "$r/lan-pending.json" ] || error lan_pending
+    validate lan "$2" > "$r/lan-candidate.json" || { cat "$r/lan-candidate.json"; exit 1; }
+    # Reject overlap with currently configured WAN addresses/routes.
+    ip -j -4 addr > "$r/wan-addresses.json"
+    jq -e --slurpfile wan "$r/wan-addresses.json" --arg usb "$usb" --arg wifi "$wifi" --arg mode "$mode" '
+    def n: split(".")|map(tonumber)|reduce .[] as $v (0;.*256+$v);
+    [.usb.address,.ap.address][] | split("/") as $lan |
+    all($wan[0][]|select(.ifname!="lo" and .ifname!=$usb and (.ifname!=$wifi or $mode=="sta"))|.addr_info[]|select(.family=="inet");
+      ([.prefixlen,($lan[1]|tonumber)]|min) as $p | pow(2;32-$p) as $b | ((.local|n)/$b|floor)!=(($lan[0]|n)/$b|floor))' "$r/lan-candidate.json" >/dev/null || error invalid_lan overlap_wan
+    # Reservations may not take an observed address belonging to another MAC.
+    bindings=$r/clients-all.json
+    [ "${MICROSTICK_ROUTER_WORKER:-no}" != yes ] || bindings=$r/client-bindings.json
+    [ -f "$bindings" ] || echo '[]' > "$bindings"
+    jq -e --slurpfile clients "$bindings" 'all(.reservations[]|select(.ip!=""); . as $r | all($clients[0][]|select(.network==$r.network and .mac!=$r.mac); (.ips|index($r.ip))==null))' "$r/lan-candidate.json" >/dev/null || error invalid_lan occupied_ip
+    token=$(od -An -N16 -tx1 /dev/urandom | tr -d ' \n')
+    deadline=$(($(clock)+120))
+    jq -cn --slurpfile config "$r/lan-candidate.json" --arg token "$token" --argjson deadline "$deadline" '{config:$config[0],token:$token,deadline:$deadline}' > "$r/lan-pending.json.new"
+    mv "$r/lan-pending.json.new" "$r/lan-pending.json"
+    if ! apply; then rm -f "$r/lan-pending.json"; apply || :; error router_apply_failed; fi
+    # Only access-impacting changes require confirmation.
+    base_config > "$r/lan-previous.json"
+    if jq -en --slurpfile old "$r/lan-previous.json" --slurpfile new "$r/lan-candidate.json" 'all(["usb","ap"][]; . as $k | $old[0][$k].address==$new[0][$k].address and ($old[0][$k].enabled==false or $new[0][$k].enabled))' >/dev/null; then
+     cp "$r/lan-candidate.json" "$e/lan.json.new"; mv "$e/lan.json.new" "$e/lan.json"; rm -f "$r/lan-pending.json"
+    fi
+    rm -f "$r/router-notice"
+    publish
+    "$self" public ;;
+   confirm)
+    [ -f "$r/lan-pending.json" ] || error no_pending_lan
+    [ "$(jq -r .token "$2")" = "$(jq -r .token "$r/lan-pending.json")" ] || error invalid_token
+    jq -c .config "$r/lan-pending.json" > "$e/lan.json.new"; mv "$e/lan.json.new" "$e/lan.json"
+    rm -f "$r/lan-pending.json" "$r/router-notice"; publish; sync; echo '{"ok":true,"message":"lan_saved"}' ;;
+   cancel)
+    rm -f "$r/lan-pending.json"; echo lan_reverted > "$r/router-notice"; apply || error router_apply_failed
+    echo '{"ok":true,"message":"lan_reverted"}' ;;
+   firewall)
+    validate firewall "$2" > "$r/firewall-candidate.json" || { cat "$r/firewall-candidate.json"; exit 1; }
+    effective > "$r/lan-effective.json.tmp"
+    if ! MICROSTICK_LAN_CONFIG="$r/lan-effective.json.tmp" MICROSTICK_FIREWALL_CONFIG="$r/firewall-candidate.json" "${MICROSTICK_FIREWALL:-/usr/libexec/microstick-firewall}" "$(cat "$r/uplink" 2>/dev/null || :)"; then error firewall_apply_failed; fi
+    cp "$r/firewall-candidate.json" "$e/firewall.json.new"; mv "$e/firewall.json.new" "$e/firewall.json"; publish; sync
+    if [ "${MICROSTICK_ROUTER_WORKER:-no}" = yes ]; then "$native" --stamp firewall; fi
+    echo '{"ok":true,"message":"firewall_saved"}' ;;
+   apply-firewall)
+    effective > "$r/lan-effective.json.tmp"
+    MICROSTICK_LAN_CONFIG="$r/lan-effective.json.tmp" "${MICROSTICK_FIREWALL:-/usr/libexec/microstick-firewall}" "$(cat "$r/uplink" 2>/dev/null || :)"
+    if [ "${MICROSTICK_ROUTER_WORKER:-no}" = yes ]; then "$native" --stamp firewall; fi ;;
+   *) exit 2 ;;
+  esac ;;
+esac

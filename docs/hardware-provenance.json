@@ -1,0 +1,53 @@
+{
+  "microstick-hmuf02-system-linux17": [
+    {
+      "scope": "Pinned #17 kernel/DTB/modules and patched MBA; installer hardware validation is not covered by this evidence.",
+      "url": "docs/hardware-provenance.json#microstick-hmuf02-system-linux17-0"
+    },
+    {
+      "bytes": 428048,
+      "scope": "lk2nd23.1; 512KiB inner Android boot",
+      "sha256": "8f5f788b45b96447517ff121f20841e6bfc95a5d7c4b48fdedb855d90f593144",
+      "url": "docs/hardware-provenance.json#microstick-hmuf02-system-linux17-1"
+    }
+  ],
+  "microstick-hmuf02-rootfs-linux17": [
+    {
+      "scope": "Pinned #17 kernel/DTB/modules and patched MBA; installer hardware validation is not covered by this evidence.",
+      "url": "docs/hardware-provenance.json#microstick-hmuf02-rootfs-linux17-0"
+    },
+    {
+      "bytes": 428048,
+      "scope": "lk2nd23.1; 512KiB inner Android boot",
+      "sha256": "8f5f788b45b96447517ff121f20841e6bfc95a5d7c4b48fdedb855d90f593144",
+      "url": "docs/hardware-provenance.json#microstick-hmuf02-rootfs-linux17-1"
+    }
+  ],
+  "microstick-ufi001c-candidate": [
+    {
+      "commit": "ea3a5c52f8f62f6464b6cdc06b700f0704f1c04a",
+      "scope": "DTS candidate: R22/G21/B20 and button37. Mainline bindings are not #17 qualification.",
+      "url": "docs/hardware-provenance.json#microstick-ufi001c-candidate-0"
+    }
+  ],
+  "microstick-uf02-candidate": [
+    {
+      "commit": "99d0f10671aa089139e104915608f73c190c4d6c",
+      "scope": "OpenWrt DTS/profile candidate: R72/G71/B73, button23. Different button wiring prevents equivalence with HMUF02.",
+      "url": "docs/hardware-provenance.json#microstick-uf02-candidate-0"
+    }
+  ],
+  "microstick-uz801v3-candidate": [
+    {
+      "commit": "99d0f10671aa089139e104915608f73c190c4d6c",
+      "scope": "Active upstream image profile; software presence does not qualify #17 installation.",
+      "url": "docs/hardware-provenance.json#microstick-uz801v3-candidate-0"
+    }
+  ],
+  "microstick-sp970-uz801-candidate": [
+    {
+      "scope": "v1 release explicitly lists SP970/UZ801 modem not working; cannot qualify a usable LTE profile.",
+      "url": "docs/hardware-provenance.json#microstick-sp970-uz801-candidate-0"
+    }
+  ]
+}

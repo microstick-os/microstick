@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="UTF-8" ?><data><log value="num_partition_sectors=7634944" /></data>
+<?xml version="1.0" encoding="UTF-8" ?><data><log value="SECTOR_SIZE_IN_BYTES=512" /></data>
+<?xml version="1.0" encoding="UTF-8" ?><data><log value="num_physical_partitions=3" /></data>
+<?xml version="1.0" encoding="UTF-8" ?><data><response value="ACK" /></data>

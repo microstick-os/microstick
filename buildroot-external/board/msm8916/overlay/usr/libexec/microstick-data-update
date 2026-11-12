@@ -1,0 +1,73 @@
+#!/bin/sh
+# Runs before plugins, and only on the actual mounted data filesystem.
+set -eu
+umask 077
+/usr/libexec/microstick-data check
+installation=$(jq -r .transaction /etc/microstick/storage.json)
+case "$installation" in ''|*[!a-f0-9]*) exit 1;; esac
+[ ${#installation} = 32 ]
+[ ! -L /data/plugins ]
+if [ -f /etc/microstick/deleted-default-plugins ]; then
+ [ ! -L /data/.default-plugins ]
+ mkdir -p /data/.default-plugins
+ chmod 700 /data/.default-plugins
+ while IFS= read -r removed; do
+  case "$removed" in ''|*[!a-zA-Z0-9_-]*) exit 1;; esac
+  # Absence in the own snapshot is a user choice; seeding must not resurrect it.
+  touch "/data/.default-plugins/$removed"
+ done < /etc/microstick/deleted-default-plugins
+ sync
+fi
+stage=/usr/share/microstick/data-update/plugins
+for source in "$stage"/*; do
+ [ -d "$source" ] || continue
+ id=${source##*/}
+ case "$id" in ''|*[!a-zA-Z0-9_-]*) exit 1;; esac
+ current=/data/plugins/$id
+ txn=/data/.microstick-update-$installation-$id
+ [ ! -L "$current" ] && [ ! -L "$txn" ]
+ mkdir -p "$txn"
+ # Recover either side of the atomic directory exchange after a power loss.
+ if [ -d "$txn/old" ]; then
+  if [ ! -e "$current" ]; then
+   [ -d "$txn/next" ] || exit 1
+   mv "$txn/next" "$current"
+   sync
+  fi
+  rm -rf "$txn/old"
+  touch "$txn/done"
+  sync
+ fi
+ [ ! -f "$txn/done" ] || continue
+ # A deliberately deleted plugin must stay deleted.
+ [ -d "$current" ] || continue
+ rm -rf "$txn/next"
+ cp -a "$source" "$txn/next"
+ if [ -e "$current/.state" ]; then
+  [ ! -L "$current/.state" ]
+  cp -a "$current/.state" "$txn/next/.state"
+ fi
+ sync
+ mv "$current" "$txn/old"
+ sync
+ mv "$txn/next" "$current"
+ sync
+ # Publish completion before deleting the old code; replay is idempotent.
+ touch "$txn/done"
+ sync
+ rm -rf "$txn/old"
+done
+if [ -f /etc/microstick/data-auth.json ]; then
+ for dest in /data/plugins/web/default-auth.json /data/plugins/web/.state/auth.json; do
+  dir=${dest%/*}
+  [ -d "$dir" ] || continue
+  [ ! -L /data/plugins ] && [ ! -L /data/plugins/web ] && [ ! -L "$dir" ] && [ ! -L "$dest" ] && [ ! -L "$dest.new" ]
+  cp /etc/microstick/data-auth.json "$dest.new"
+  chmod 600 "$dest.new"
+  if [ "$dest" = /data/plugins/web/.state/auth.json ]; then chown 405:405 "$dest.new"; fi
+  sync
+  mv "$dest.new" "$dest"
+ done
+ rm -f /data/plugins/web/.state/sessions.json
+ sync
+fi
