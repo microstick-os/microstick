@@ -365,9 +365,10 @@ func archiveDistribution(root, destination string) error {
 }
 
 func packageNotices(p Paths, root string) error {
-	text := "# Component notices\n\nKeep the component license files with this release.\nmicrostick source: https://github.com/microstick-os/microstick.\nThe firmware uses Linux, Buildroot and the packages listed in packages.json.\nHost tools use e2fsprogs, mtools, OpenSSL, QDL and their shared libraries.\nResource URLs and hashes are in boards/resources.json.\nThe boot loader is lk2nd 23.1. Its source is https://github.com/msm8916-mainline/lk2nd.\nQDL source is https://github.com/linux-msm/qdl.\n\nThis directory does not assign a new license to microstick or its components.\n"
-	if e := os.WriteFile(filepath.Join(root, "THIRD_PARTY_NOTICES.md"), []byte(text), 0644); e != nil {
-		return e
+	for _, name := range []string{"LICENSE", "THIRD_PARTY_NOTICES.md"} {
+		if e := copyFile(filepath.Join(p.Repo, name), filepath.Join(root, name), 0644); e != nil {
+			return e
+		}
 	}
 	var packages map[string]map[string]any
 	if e := readJSON(filepath.Join(p.Artifacts, "packages.json"), &packages); e != nil {
