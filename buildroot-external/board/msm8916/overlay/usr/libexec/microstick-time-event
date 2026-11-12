@@ -1,0 +1,16 @@
+#!/bin/sh
+# Generic time-service readiness, independent of optional plugins.
+set -eu
+mark() {
+ cat /proc/sys/kernel/random/boot_id > /run/microstick/time-synced.new
+ mv /run/microstick/time-synced.new /run/microstick/time-synced
+}
+case "${1:-}" in
+ # BusyBox deliberately resets stratum to16 immediately after a successful step.
+ step) mark ;;
+ stratum|periodic)
+  case "${stratum:-16}" in ''|*[!0-9]*) exit 0;; esac
+  [ "${stratum:-16}" -lt 16 ] || exit 0
+  mark ;;
+ unsync) rm -f /run/microstick/time-synced ;;
+esac

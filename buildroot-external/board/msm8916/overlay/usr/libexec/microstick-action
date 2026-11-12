@@ -1,0 +1,194 @@
+#!/bin/sh
+# Fixed operations only; request values are never evaluated as shell code.
+set -eu
+umask 077
+run=${MICROSTICK_RUN:-/run/microstick}
+etc=${MICROSTICK_ETC:-/etc/microstick}
+request=$2
+ok() { jq -n --arg message "$1" '{ok:true,message:$message}' > "$run/result.json.new"; mv "$run/result.json.new" "$run/result.json"; }
+fail() { jq -n --arg error "$1" '{ok:false,error:$error}' > "$run/result.json.new"; mv "$run/result.json.new" "$run/result.json"; exit 1; }
+trap 'rm -f "$request" "$run/scan-active"' EXIT
+get() { jq -er --arg k "$1" '.[$k] | select(type=="string")' "$request"; }
+setconf() {
+ exec 8>"$run/network-config.lock"; flock 8
+ sed "s/^$1=.*/$1=$2/" "$etc/network.conf" > "$etc/network.conf.new"
+ if ! grep -q "^$1=" "$etc/network.conf"; then printf '%s=%s\n' "$1" "$2" >> "$etc/network.conf.new"; fi
+ chmod 600 "$etc/network.conf.new"; mv "$etc/network.conf.new" "$etc/network.conf"
+ exec 8>&-
+}
+stage_wifi() {
+ exec 8>"$run/network-config.lock"; flock 8
+ if [ "$1" != "$run/wifi-candidate.conf.new" ]; then cp "$1" "$run/wifi-candidate.conf.new"; fi
+ mv "$run/wifi-candidate.conf.new" "$run/wifi-candidate.conf"
+ echo yes > "$run/wifi-stage"
+ exec 8>&-
+}
+cancel_wifi() {
+ exec 8>"$run/network-config.lock"; flock 8
+ rm -f "$run/wifi-candidate.conf" "$run/wifi-stage"
+ exec 8>&-
+}
+case "$1" in
+ lan|lan_confirm|lan_cancel|firewall)
+  helper=${MICROSTICK_ROUTER:-/usr/libexec/microstick-router}
+  case "$1" in
+   lan|firewall)
+    jq -e 'type=="object" and (.config|type)=="object"' "$request" >/dev/null || fail invalid_request
+    jq -c .config "$request" > "$run/router-request.json"
+    if [ "$1" = lan ]; then verb=stage; else verb=firewall; fi
+    input="$run/router-request.json" ;;
+   lan_confirm) verb=confirm; input=$request ;;
+   lan_cancel) verb=cancel; input=$request ;;
+  esac
+  if "$helper" "$verb" "$input" > "$run/router-result.json"; then
+   jq -c '.+{ok:true,message:(if has("config") then (if .pending!=null then "lan_pending" else "lan_saved" end) else .message end)}' "$run/router-result.json" > "$run/result.json.new"
+  else
+   jq -c '.+{ok:false}' "$run/router-result.json" > "$run/result.json.new" 2>/dev/null || printf '%s\n' '{"ok":false,"error":"router_apply_failed"}' > "$run/result.json.new"
+  fi
+  mv "$run/result.json.new" "$run/result.json"
+  rm -f "$run/router-request.json"
+  exit ;;
+esac
+jq -e 'type=="object" and all(.[]; (type=="string" and length<=128 and all(explode[]; .>=32 and .!=127)) or type=="boolean")' "$request" >/dev/null || fail invalid_request
+. "$etc/network.conf"
+wifi=$(cat "$run/wifi-interface" 2>/dev/null || echo unavailable)
+case "$1" in
+ device)
+  name=$(get hostname) || fail invalid_hostname
+  case "$name" in ''|*[!a-z0-9-]*|-*|*-) fail invalid_hostname;; esac
+  [ "${#name}" -le 63 ] || fail invalid_hostname
+  printf '%s\n' "$name" > "$etc/hostname.new"
+  mv "$etc/hostname.new" "$etc/hostname"
+  ok hostname_saved ;;
+ imei)
+  if jq -e '.restore == true' "$request" >/dev/null; then
+   rm -f "$etc/imei.json"
+  else
+   if ! "${MICROSTICK_IMEI_NV:-/usr/libexec/microstick-imei-nv}" validate < "$request" > "$run/imei-validation.json"; then fail invalid_imei; fi
+   jq '{imei}' "$request" > "$etc/imei.json.new"
+   mv "$etc/imei.json.new" "$etc/imei.json"
+  fi
+  sync
+  ok imei_saved_reboot
+  sleep 2
+  reboot ;;
+ ttl)
+  enabled=$(jq -er '.enabled | if type=="boolean" then tostring else empty end' "$request") || fail invalid_ttl
+  value=$(get value) || fail invalid_ttl
+  case "$value" in ''|*[!0-9]*) fail invalid_ttl;; esac
+  value=$(printf '%s' "$value" | sed 's/^0*//')
+  [ -n "$value" ] || fail invalid_ttl
+  [ "$value" -ge 1 ] && [ "$value" -le 255 ] || fail invalid_ttl
+  if [ "$enabled" = true ]; then enabled=yes; else enabled=no; fi
+  printf 'FIX_TTL_ENABLED=%s\nFIX_TTL_VALUE=%s\n' "$enabled" "$value" > "$etc/ttl.conf.new"
+  if ! MICROSTICK_TTL_CONFIG="$etc/ttl.conf.new" "${MICROSTICK_TTL:-/usr/libexec/microstick-ttl}"; then
+   rm -f "$etc/ttl.conf.new"; fail ttl_apply_failed
+  fi
+  mv "$etc/ttl.conf.new" "$etc/ttl.conf"
+  sync
+  ok ttl_saved ;;
+ scan)
+  touch "$run/scan-active"
+  rfkill unblock wlan
+  ip link set "$wifi" up
+  # AP scan support is not advertised on wcn36xx: briefly stop AP safely.
+  if [ "$WIFI_MODE" = ap ]; then
+   [ ! -f "$run/hostapd.pid" ] || kill "$(cat "$run/hostapd.pid")" 2>/dev/null || :
+   ip link set "$wifi" down
+   iw dev "$wifi" set type managed
+   ip link set "$wifi" up
+  fi
+  timeout 15 iw dev "$wifi" scan > "$run/scan.raw" 2>/dev/null || :
+  "${MICROSTICK_WIFI_TOOL:-/usr/libexec/microstick-wifi}" scan < "$run/scan.raw" | jq 'sort_by(-.signal)|unique_by([.ssid_hex,.security])|sort_by(-.signal)' > "$run/scan.json.new"
+  mv "$run/scan.json.new" "$run/scan.json"
+  if [ "$WIFI_MODE" = ap ]; then rm -f "$run/hostapd.pid"; fi
+  ok scan_complete ;;
+ connect)
+  if ! "${MICROSTICK_WIFI_TOOL:-/usr/libexec/microstick-wifi}" config < "$request" > "$run/wifi-candidate.conf.new"; then
+   rm -f "$run/wifi-candidate.conf.new"; fail invalid_wifi_parameters
+  fi
+  stage_wifi "$run/wifi-candidate.conf.new"
+  ok wifi_pending ;;
+ forget)
+  cancel_wifi
+  rm -f "$etc/wifi-recovery.json"
+  printf 'ctrl_interface=/run/wpa_supplicant\nupdate_config=0\n' > "$etc/wpa_supplicant.conf"
+  setconf WIFI_MODE ap; ok forgotten ;;
+ wifi)
+  mode=$(get mode)
+  case "$mode" in ap|sta|off) ;; *) fail invalid_mode;; esac
+  if [ "$mode" = sta ]; then
+   stage_wifi "$etc/wpa_supplicant.conf"
+  else cancel_wifi; fi
+  setconf WIFI_MODE "$mode"; ok mode_saved ;;
+ mode)
+  mode=$(get mode) || fail invalid_mode
+  case "$mode" in auto|wifi|lte) ;; *) fail invalid_mode;; esac
+  setconf UPLINK_MODE "$mode"
+  case "$mode" in
+   wifi) stage_wifi "$etc/wpa_supplicant.conf"; setconf WIFI_MODE sta; setconf LTE_ENABLED no; echo no > "$run/lte-request" ;;
+   lte) cancel_wifi; setconf WIFI_MODE ap; setconf LTE_ENABLED yes; echo yes > "$run/lte-request"; touch "$run/lte-retry" ;;
+   auto) rm -f "$run/auto-initialized" "$run/lte-request" ;;
+  esac
+  ok mode_saved ;;
+
+ ap)
+  ssid=$(get ssid); password=$(get password)
+  [ -n "$ssid" ] && [ "$(printf %s "$ssid" | wc -c)" -le 32 ] || fail invalid_ssid
+  [ "${#password}" -ge 8 ] && [ "${#password}" -le 63 ] || fail invalid_password
+  # Derive hex PSK without embedding arbitrary SSID into hostapd syntax.
+  psk=$(printf '%s\n' "$password" | wpa_passphrase "$ssid" | sed -n 's/^[[:space:]]*psk=//p')
+  hex=$(printf %s "$ssid" | od -An -tx1 | tr -d ' \n')
+  { printf 'interface=%s\ndriver=nl80211\nctrl_interface=/run/hostapd\nssid2=%s\n' "$wifi" "$hex"; printf 'hw_mode=g\nchannel=1\nieee80211n=1\nwmm_enabled=1\nauth_algs=1\nwpa=2\nwpa_key_mgmt=WPA-PSK\nrsn_pairwise=CCMP\nwpa_psk=%s\n' "$psk"; } > "$etc/hostapd.conf.new"
+  mv "$etc/hostapd.conf.new" "$etc/hostapd.conf"
+  [ ! -f "$run/hostapd.pid" ] || kill "$(cat "$run/hostapd.pid")" 2>/dev/null || :
+  ok ap_saved ;;
+ lte)
+  profile=$(jq -r '.profile // ""' "$request")
+  apn=$(get apn) || apn=''
+  user=$(jq -r '.username // ""' "$request"); pass=$(jq -r '.password // ""' "$request")
+  auth=$(jq -r '.auth // "none"' "$request")
+  case "$auth" in none|pap|chap|pap-or-chap) ;; *) fail invalid_auth;; esac
+  case "$apn" in *[!a-zA-Z0-9._-]*) fail invalid_lte_parameters;; esac
+  [ -n "$profile" ] || { [ -z "$apn" ] || profile=manual; }
+  if [ -n "$profile" ]; then
+   case "$profile" in
+    auto) printf '{"profile":"auto"}\n' > "$etc/lte.json.new" ;;
+    manual)
+     if [ -s "$etc/lte.json" ]; then cp "$etc/lte.json" "$run/lte-old-private.json"; else
+      sed '/^[[:space:]]*#/d; /^[[:space:]]*$/d' "$etc/lte.properties" | tr -d '\r\n' | jq -Rs 'split(",") | map(split("=") | select(length>=2) | {key:.[0],value:.[1:]|join("=")}) | from_entries | {apn:(.apn // ""),username:(.user // ""),password:(.password // ""),auth:(.["allowed-auth"] // (if (.user // "")!="" or (.password // "")!="" then "pap-or-chap" else "none" end))}' > "$run/lte-old-private.json"
+     fi
+     jq -s '.[0] * .[1] | {profile:"manual",apn:(.apn // ""),username:(.username // ""),password:(.password // ""),auth:(.auth // "none")}' "$run/lte-old-private.json" "$request" > "$etc/lte.json.new"
+     rm -f "$run/lte-old-private.json"
+     jq -e '.apn|type=="string" and length>0 and length<=100 and test("^[a-zA-Z0-9._-]+$")' "$etc/lte.json.new" >/dev/null || { rm -f "$etc/lte.json.new"; fail invalid_lte_parameters; } ;;
+    *)
+     jq -e --arg profile "$profile" 'any(.[]; .id==$profile and .preferred==true)' "${MICROSTICK_PROVIDERS:-/usr/share/microstick/providers.json}" >/dev/null 2>&1 || fail invalid_operator_profile
+     jq '{profile}' "$request" > "$etc/lte.json.new" ;;
+   esac
+   if ! cmp -s "$etc/lte.json.new" "$etc/lte.json"; then touch "$run/lte-profile-changed"; fi
+   mv "$etc/lte.json.new" "$etc/lte.json"
+   rm -f "$run/lte-profile.json"
+  fi
+  enabled=$(jq -r 'if has("enabled") then .enabled else true end' "$request")
+  if [ "$enabled" = true ]; then
+   setconf LTE_ENABLED yes
+   echo yes > "$run/lte-request"
+   rm -f "$run/lte-error" "$run/error"
+   touch "$run/lte-retry"
+  else
+   setconf LTE_ENABLED no
+   echo no > "$run/lte-request"; id=$(mmcli -L -J 2>/dev/null | jq -er '.["modem-list"][0]') || id=''
+   [ -z "$id" ] || mmcli -m "$id" --simple-disconnect >/dev/null 2>&1 || :
+  fi
+  ok lte_saved ;;
+ pin)
+  if ! "${MICROSTICK_MODEM:-/usr/libexec/microstick-modem}" pin < "$request" > "$run/pin-result.json"; then
+   error=$(jq -r '.error // "pin_failed"' "$run/pin-result.json" 2>/dev/null) || error=pin_failed
+   fail "$error"
+  fi
+  rm -f "$run/lte-error" "$run/error"
+  touch "$run/lte-retry"
+  ok pin_accepted ;;
+ reboot) ok rebooting; sleep 2; reboot ;;
+ *) fail unknown_method;;
+esac

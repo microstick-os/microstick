@@ -1,0 +1,57 @@
+#!/bin/sh
+set -eu
+run=/run/microstick
+mkdir -p "$run"
+case "${1:-status}" in
+ plugins)
+    case "${2:-list}" in
+      list) for d in /run/microstick/plugins/*; do [ ! -d "$d" ] || sv status "$d"; done ;;
+      rescan) exec /usr/libexec/microstick-plugins rescan ;;
+      start|stop) case "${3:-}" in ''|*[!a-zA-Z0-9_-]*) exit 2;; esac
+        if [ "$2" = start ]; then sv up "/run/microstick/plugins/$3"; else exec /usr/libexec/microstick-plugins stop "$3"; fi ;;
+      *) exit 2;;
+    esac ;;
+ clients) exec /usr/libexec/microstick-core "$(jq -cn --argjson page "${2:-0}" '{method:"clients",page:$page}')" ;;
+ lan|firewall)
+    case "${2:-show}" in
+     show) exec /usr/libexec/microstick-core "$(jq -cn --arg method "${1}_config" '{method:$method}')" ;;
+     apply) payload=$(jq -c --arg method "$1" '{method:$method,config:.}' "${3:?JSON file required}") ;;
+     confirm) [ "$1" = lan ] || exit 2; payload=$(jq -cn --arg token "${3:?token required}" '{method:"lan_confirm",token:$token}') ;;
+     cancel) [ "$1" = lan ] || exit 2; payload='{"method":"lan_cancel"}' ;;
+     *) exit 2 ;;
+    esac
+    exec /usr/libexec/microstick-core "$payload" ;;
+ status) exec /usr/libexec/microstick-core '{"method":"status"}' ;;
+ api)
+    if [ "$#" -ge 2 ]; then payload=$2; else payload='{}'; fi
+    exec /usr/libexec/microstick-core "$payload" ;;
+ usb)
+    case "${2:-}" in rndis|ncm) ;; *) echo 'Usage: microstick usb rndis|ncm [--experimental]' >&2; exit 2;; esac
+    if [ "$2" = ncm ] && [ "${3:-}" != --experimental ]; then
+        echo 'NCM stalled under load on kernel #17; use: microstick usb ncm --experimental' >&2
+        exit 2
+    fi
+    exec 8>/run/lock/microstick-config.lock
+    flock 8
+    umask 077
+    printf 'USB_MODE=%s\n' "$2" > /etc/microstick/usb.conf.new
+    mv /etc/microstick/usb.conf.new /etc/microstick/usb.conf
+    echo "USB $2 selected for next boot; reboot to apply."
+    ;;
+ wifi)
+    case "${2:-}" in ap|sta|off) ;; *) echo 'Usage: microstick wifi ap|sta|off' >&2; exit 2;; esac
+    exec /usr/libexec/microstick-core "$(jq -cn --arg mode "$2" '{method:"wifi",mode:$mode}')" ;;
+ lte)
+    case "${2:-}" in connect) enabled=true;; disconnect) enabled=false;; *) exit 2;; esac
+    exec /usr/libexec/microstick-core "$(jq -cn --argjson enabled "$enabled" '{method:"lte",enabled:$enabled}')" ;;
+ ttl)
+    case "${2:-}" in off) enabled=false; value=64;; ''|*[!0-9]*) exit 2;; *) enabled=true; value=$2;; esac
+    exec /usr/libexec/microstick-core "$(jq -cn --argjson enabled "$enabled" --arg value "$value" '{method:"ttl",enabled:$enabled,value:$value}')" ;;
+ imei)
+    case "${2:-}" in restore) payload='{"method":"imei","restore":true}';;
+     set) payload=$(jq -cn --arg imei "${3:-}" '{method:"imei",imei:$imei}');;
+     *) echo 'Usage: microstick imei set <15 digits> | imei restore (reboots)' >&2; exit 2;; esac
+    exec /usr/libexec/microstick-core "$payload" ;;
+
+ *) echo 'Usage: microstick clients [page] | lan|firewall show|apply <file> | lan confirm <token>|cancel | status | usb rndis|ncm [--experimental] | wifi ap|sta|off | lte connect|disconnect | ttl <1-255>|off | imei set <15 digits>|restore' >&2; exit 2 ;;
+esac

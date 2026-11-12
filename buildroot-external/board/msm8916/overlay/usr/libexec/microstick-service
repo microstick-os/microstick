@@ -1,0 +1,43 @@
+#!/bin/sh
+# runsv restarts crashed foreground daemons, without restarting the USB gadget.
+set -eu
+case "$1" in
+ qrtr) exec qrtr-ns -f 1 ;;
+ rmtfs)
+   while :; do
+     ready=yes
+     for p in modemst1 modemst2 fsc fsg; do
+       [ -b "/dev/disk/by-partlabel/$p" ] || ready=no
+     done
+     [ -c /dev/qcom_rmtfs_mem1 ] || ready=no
+     pidof qrtr-ns >/dev/null || ready=no
+     [ "$ready" = yes ] && break
+     sleep 2
+   done
+   exec rmtfs -r -P -s ;;
+ modem)
+   while [ ! -S /run/dbus/system_bus_socket ]; do sleep 2; done
+   until /usr/libexec/microstick-modem-guard; do sleep 3; done
+   until /usr/libexec/microstick-imei-apply; do sleep 3; done
+   exec /usr/sbin/ModemManager ;;
+ discovery)
+   while [ ! -r /run/microstick/mdns.conf ] || [ ! -S /run/dbus/system_bus_socket ]; do sleep 1; done
+   exec /usr/sbin/avahi-daemon --no-chroot --file=/run/microstick/mdns.conf ;;
+ core) exec /usr/libexec/microstick-core --daemon ;;
+ router) exec /usr/libexec/microstick-router run ;;
+ network) exec /usr/libexec/microstick-network ;;
+ ntp)
+   while [ ! -s /run/microstick/upstream-resolv.conf ]; do sleep 5; done
+   sleep 2
+   exec ntpd -n -S /usr/libexec/microstick-time-event -p time.cloudflare.com -p pool.ntp.org ;;
+ clock)
+   while :; do
+     now=$(date +%s)
+     [ "$now" -ge "$(cat /etc/microstick/build-epoch)" ] && {
+       printf '%s\n' "$now" > /var/lib/microstick/last-time.new
+       mv /var/lib/microstick/last-time.new /var/lib/microstick/last-time
+     }
+     sleep 3600
+   done ;;
+ *) exit 2 ;;
+esac

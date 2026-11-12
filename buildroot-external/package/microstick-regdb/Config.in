@@ -1,0 +1,2 @@
+config BR2_PACKAGE_MICROSTICK_REGDB
+	bool "regdb signed by the kernel's sforshee key"

@@ -1,0 +1,63 @@
+#!/bin/sh
+set -eu
+USB_MODE=rndis
+[ ! -r /etc/microstick/usb.conf ] || . /etc/microstick/usb.conf
+case "$USB_MODE" in rndis|ncm) ;; *) echo 'Invalid USB_MODE (rndis|ncm)' >&2; exit 2;; esac
+g=/sys/kernel/config/usb_gadget/g1
+if [ -d "$g" ] && [ -n "$(cat "$g/UDC")" ]; then exit 0; fi
+mountpoint -q /sys/kernel/config || mount -t configfs none /sys/kernel/config
+mkdir -p "$g"
+echo 0x18d1 > "$g/idVendor"
+echo 0xd001 > "$g/idProduct"
+echo 0x0200 > "$g/bcdUSB"
+case "$USB_MODE" in
+  rndis) echo 0x0002 > "$g/bcdDevice" ;;
+  ncm) echo 0x0003 > "$g/bcdDevice" ;;
+esac
+# Composite device with IADs; the network function precedes FunctionFS ADB.
+echo 0xef > "$g/bDeviceClass"
+echo 0x02 > "$g/bDeviceSubClass"
+echo 0x01 > "$g/bDeviceProtocol"
+mkdir -p "$g/strings/0x409" "$g/configs/c1.1/strings/0x409"
+echo 0123456789 > "$g/strings/0x409/serialnumber"
+echo microstick > "$g/strings/0x409/manufacturer"
+echo 'MSM8916 Buildroot' > "$g/strings/0x409/product"
+echo "$USB_MODE + ADB" > "$g/configs/c1.1/strings/0x409/configuration"
+echo 0x80 > "$g/configs/c1.1/bmAttributes"
+echo 2 > "$g/configs/c1.1/MaxPower"
+net="$g/functions/$USB_MODE.net"
+mkdir -p "$net" "$g/functions/ffs.adb"
+echo 02:00:23:04:c4:68 > "$net/dev_addr"
+echo 02:00:23:04:c4:69 > "$net/host_addr"
+# The controller/firewall use usb0. Request that name explicitly and verify
+# the real configfs name instead of assuming NCM's default naming policy.
+echo 'usb%d' > "$net/ifname"
+[ -L "$g/configs/c1.1/net" ] || ln -s "$net" "$g/configs/c1.1/net"
+[ -L "$g/configs/c1.1/adb" ] || ln -s "$g/functions/ffs.adb" "$g/configs/c1.1/adb"
+if [ "$USB_MODE" = rndis ]; then
+  echo RNDIS > "$net/os_desc/interface.rndis/compatible_id"
+  echo 5162001 > "$net/os_desc/interface.rndis/sub_compatible_id"
+  echo MSFT100 > "$g/os_desc/qw_sign"
+  echo 0xbc > "$g/os_desc/b_vendor_code"
+  echo 1 > "$g/os_desc/use"
+  [ -L "$g/os_desc/c1.1" ] || ln -s "$g/configs/c1.1" "$g/os_desc/c1.1"
+else
+  echo 0 > "$g/os_desc/use"
+fi
+mkdir -p /dev/usb-ffs/adb
+mountpoint -q /dev/usb-ffs/adb || mount -t functionfs adb /dev/usb-ffs/adb
+adbd &
+echo "$!" > /run/microstick/adbd.pid
+count=0
+while [ ! -e /dev/usb-ffs/adb/ep1 ] || [ ! -e /dev/usb-ffs/adb/ep2 ]; do
+  kill -0 "$(cat /run/microstick/adbd.pid)" || exit 1
+  count=$((count + 1)); [ "$count" -lt 100 ] || exit 1
+  sleep 0.1
+done
+[ -d /sys/class/udc/ci_hdrc.0 ]
+echo ci_hdrc.0 > "$g/UDC"
+# The kernel allocates the numeric suffix at bind time, so read it afterwards.
+iface=$(cat "$net/ifname")
+case "$iface" in ''|*[!a-zA-Z0-9_.-]*) exit 1;; esac
+printf '%s\n' "$iface" > /run/microstick/usb-iface
+printf '%s\n' "$USB_MODE" > /run/microstick/usb-mode

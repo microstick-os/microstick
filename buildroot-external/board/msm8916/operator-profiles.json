@@ -1,0 +1,14 @@
+[
+ {"id":"ru-mts","name":"МТС","operators":["25001"],"apn":"internet.mts.ru","username":"mts","password":"mts","auth":"pap-or-chap","preferred":true},
+ {"id":"ru-megafon","name":"МегаФон","operators":["25002"],"apn":"internet","username":"gdata","password":"gdata","auth":"pap-or-chap","preferred":true},
+ {"id":"ru-beeline","name":"билайн","operators":["25099"],"apn":"internet.beeline.ru","username":"beeline","password":"beeline","auth":"pap","preferred":true},
+ {"id":"ru-t2","name":"T2","operators":["25020"],"spn":["Tele2","T2","Теле2"],"apn":"internet","auth":"none","preferred":true},
+ {"id":"ru-yota","name":"Yota","operators":["25011"],"apn":"internet.yota","auth":"none","preferred":true},
+ {"id":"ru-tbank","name":"Т-Банк Мобайл","operators":["25062"],"apn":"tt","auth":"none","preferred":true},
+ {"id":"ru-tbank","name":"Т-Банк Мобайл","operators":["25020"],"spn":["Tinkoff","Tinkoff Mobile","T-Mobile","T-Bank Mobile","Т-Банк Мобайл"],"apn":"tt","auth":"none","preferred":true},
+ {"id":"ru-sbermobile","name":"СберМобайл","operators":["25050"],"apn":"sberbank","auth":"none","preferred":true},
+ {"id":"ru-sbermobile","name":"СберМобайл","operators":["25020"],"spn":["SberMobile","Sberbank","Sberbank Telecom","СберМобайл"],"gid1":"FA3207FF","apn":"sberbank","auth":"none","preferred":true},
+ {"id":"ru-vtbmobile","name":"ВТБ Мобайл","operators":["25026"],"apn":"vtb","auth":"none","preferred":true},
+ {"id":"ru-gpbmobile","name":"Газпромбанк Мобайл","operators":["25020"],"spn":["GPB Mobile","GPB","Gazprombank Mobile","Газпромбанк Мобайл"],"apn":"gpb","auth":"none","preferred":true},
+ {"id":"ru-rostelecom","name":"Ростелеком","operators":["25020","25039"],"spn":["Rostelecom","Rostelekom","RTK","Ростелеком"],"apn":"internet.rtk.ru","auth":"none","preferred":true}
+]

@@ -1,0 +1,14 @@
+#!/bin/sh
+# Apply the factory-data keepalive only to the configured MPSS profile.
+# Never replace non-zero factory data; all NV writes remain in rmtfs RAM shadow.
+set -eu
+profile=/usr/share/microstick/modem-guard.sha256
+[ -s "$profile" ] || exit 0
+sha256sum -c "$profile" >/dev/null 2>&1 || exit 1
+if /usr/libexec/microstick-imei-nv guard > /run/microstick/modem-guard-result.json.new; then
+ mv /run/microstick/modem-guard-result.json.new /run/microstick/modem-guard-result.json
+ rm -f /run/microstick/modem-guard-error
+else
+ jq -r '.error // "modem_guard_failed"' /run/microstick/modem-guard-result.json.new > /run/microstick/modem-guard-error
+ exit 1
+fi

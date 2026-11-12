@@ -1,0 +1,5 @@
+config BR2_PACKAGE_MICROSTICK_RMTFS
+	bool "Qualcomm remote filesystem service (rmtfs)"
+	depends on BR2_PACKAGE_HAS_UDEV
+	depends on BR2_TOOLCHAIN_HAS_THREADS
+	select BR2_PACKAGE_MICROSTICK_QRTR

@@ -1,0 +1,29 @@
+#!/bin/sh
+set -eu
+case "$1" in
+ start)
+   mkdir -p /run/microstick /run/lock /var/lib/microstick /var/log /etc/dropbear
+   chmod 700 /var/lib/microstick /etc/dropbear
+   chgrp 405 /run/microstick
+   chmod 710 /run/microstick
+   epoch=$(cat /etc/microstick/build-epoch)
+   if [ -r /var/lib/microstick/last-time ]; then
+     saved=$(cat /var/lib/microstick/last-time)
+     case "$saved" in ''|*[!0-9]*) ;; *) [ "$saved" -gt "$epoch" ] && epoch=$saved ;; esac
+   fi
+   [ "$(date +%s)" -ge "$epoch" ] || date -s "@$epoch"
+   # Initialize loopback before the network supervisor starts.
+   ip addr replace 127.0.0.1/8 dev lo
+   ip link set lo up
+   # Keep WAN inaccessible until the full ruleset is installed.
+   for m in ip_tables iptable_filter iptable_nat iptable_mangle xt_conntrack xt_MASQUERADE xt_REDIRECT xt_TCPMSS xt_tcpudp; do modprobe "$m"; done
+   iptables -P INPUT DROP
+   iptables -A INPUT -i lo -j ACCEPT
+   iptables -A INPUT -m conntrack --ctstate ESTABLISHED,RELATED -j ACCEPT
+   iptables -P FORWARD DROP
+   sysctl -w net.ipv4.ip_forward=1
+   for f in /proc/sys/net/ipv6/conf/*/disable_ipv6; do [ ! -f "$f" ] || echo 1 > "$f"; done
+   ;;
+ stop) : ;;
+ *) exit 2 ;;
+esac

@@ -1,0 +1,53 @@
+#!/bin/sh
+# Event supervisor owns policy; these are serialized one-shot apply adapters.
+set -eu
+umask 077
+if [ "$#" = 0 ]; then exec /usr/libexec/microstick-networkd; fi
+. "${MICROSTICK_LIBRARY:-/usr/lib/microstick/network.sh}"
+. "$MICROSTICK_ETC/network.conf"
+stop_pid() {
+    if [ -r "$1" ]; then kill "$(cat "$1")" 2>/dev/null || :; rm -f "$1"; fi
+}
+alive() {
+    [ -r "$1" ] && kill -0 "$(cat "$1")" 2>/dev/null
+}
+stop_wifi() {
+    for p in hostapd wpa_supplicant dhcp-${WIFI_INTERFACE}; do stop_pid "$MICROSTICK_RUN/$p.pid"; done
+    ip -4 route flush dev ${WIFI_INTERFACE} proto 186 2>/dev/null || :
+    ip -4 addr flush dev ${WIFI_INTERFACE} 2>/dev/null || :
+    rm -f "$MICROSTICK_RUN/wifi-dns"
+}
+cleanup() {
+    stop_wifi
+    clear_lte
+}
+
+case "$1" in
+ wifi)
+  mode=$2
+  case "$mode" in ap|sta|off) ;; *) exit 2;; esac
+  /usr/libexec/microstick-router mode off
+  stop_wifi
+  case "$mode" in
+   ap)
+    rfkill unblock wlan
+    ip link set "$WIFI_INTERFACE" up
+    sed "s/^interface=.*/interface=$WIFI_INTERFACE/" "$MICROSTICK_ETC/hostapd.conf" > "$MICROSTICK_RUN/hostapd.conf"
+    hostapd -B -P "$MICROSTICK_RUN/hostapd.pid" "$MICROSTICK_RUN/hostapd.conf" ;;
+   sta)
+    rfkill unblock wlan
+    ip link set "$WIFI_INTERFACE" up
+    config="$MICROSTICK_ETC/wpa_supplicant.conf"
+    [ ! -f "$MICROSTICK_RUN/wifi-candidate.conf" ] || config="$MICROSTICK_RUN/wifi-candidate.conf"
+    wpa_supplicant -B -P "$MICROSTICK_RUN/wpa_supplicant.pid" -D nl80211 -i "$WIFI_INTERFACE" -c "$config"
+    name=$(cat "$MICROSTICK_ETC/hostname" 2>/dev/null || echo microstick)
+    udhcpc -b -x "hostname:$name" -i "$WIFI_INTERFACE" -p "$MICROSTICK_RUN/dhcp-$WIFI_INTERFACE.pid" -s /usr/libexec/microstick-dhcp ;;
+  esac
+  /usr/libexec/microstick-router mode "$mode"
+  rm -f "$MICROSTICK_RUN/error" ;;
+ lte) poll_lte ;;
+ clear) clear_lte ;;
+ ttl) exec /usr/libexec/microstick-ttl ;;
+ cleanup) cleanup ;;
+ *) exit 2 ;;
+esac

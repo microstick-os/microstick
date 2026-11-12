@@ -1,0 +1,53 @@
+{
+  "microstick-hmuf02-system-linux17": [
+    {
+      "scope": "Pinned #17 kernel/DTB/modules and patched MBA.",
+      "url": "docs/hardware-provenance.json#microstick-hmuf02-system-linux17-0"
+    },
+    {
+      "bytes": 428048,
+      "scope": "lk2nd23.1; 512KiB inner Android boot",
+      "sha256": "8f5f788b45b96447517ff121f20841e6bfc95a5d7c4b48fdedb855d90f593144",
+      "url": "docs/hardware-provenance.json#microstick-hmuf02-system-linux17-1"
+    }
+  ],
+  "microstick-hmuf02-rootfs-linux17": [
+    {
+      "scope": "Pinned #17 kernel/DTB/modules and patched MBA.",
+      "url": "docs/hardware-provenance.json#microstick-hmuf02-rootfs-linux17-0"
+    },
+    {
+      "bytes": 428048,
+      "scope": "lk2nd23.1; 512KiB inner Android boot",
+      "sha256": "8f5f788b45b96447517ff121f20841e6bfc95a5d7c4b48fdedb855d90f593144",
+      "url": "docs/hardware-provenance.json#microstick-hmuf02-rootfs-linux17-1"
+    }
+  ],
+  "microstick-ufi001c-candidate": [
+    {
+      "commit": "ea3a5c52f8f62f6464b6cdc06b700f0704f1c04a",
+      "scope": "Upstream DTS: R22/G21/B20, button GPIO37.",
+      "url": "docs/hardware-provenance.json#microstick-ufi001c-candidate-0"
+    }
+  ],
+  "microstick-uf02-candidate": [
+    {
+      "commit": "99d0f10671aa089139e104915608f73c190c4d6c",
+      "scope": "OpenWrt DTS/profile: R72/G71/B73, button GPIO23.",
+      "url": "docs/hardware-provenance.json#microstick-uf02-candidate-0"
+    }
+  ],
+  "microstick-uz801v3-candidate": [
+    {
+      "commit": "99d0f10671aa089139e104915608f73c190c4d6c",
+      "scope": "Upstream UZ801v3 image profile.",
+      "url": "docs/hardware-provenance.json#microstick-uz801v3-candidate-0"
+    }
+  ],
+  "microstick-sp970-uz801-candidate": [
+    {
+      "scope": "Upstream v1 release lists SP970/UZ801 modem support as unavailable.",
+      "url": "docs/hardware-provenance.json#microstick-sp970-uz801-candidate-0"
+    }
+  ]
+}

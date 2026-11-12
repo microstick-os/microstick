@@ -1,0 +1,20 @@
+#!/bin/sh
+set -eu
+repo=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+if [ -n "${MICROSTICK_WORKSPACE:-}" ]; then
+    case "$MICROSTICK_WORKSPACE" in /*) ;; *) echo 'MICROSTICK_WORKSPACE must be absolute' >&2; exit 1;; esac
+    MICROSTICK_WORKSPACE=$(realpath -m -- "$MICROSTICK_WORKSPACE")
+    export MICROSTICK_WORKSPACE
+    case "$MICROSTICK_WORKSPACE/" in "$repo/"*) echo 'MICROSTICK_WORKSPACE must be outside the source repository' >&2; exit 1;; esac
+    cache="$MICROSTICK_WORKSPACE/host-tools/microstick-go"
+    mkdir -p "$cache"
+else
+    cache=$(mktemp -d "${TMPDIR:-/tmp}/microstick-dev.XXXXXXXX")
+    trap 'rm -rf -- "$cache"' EXIT HUP INT TERM
+fi
+export GOCACHE="$cache/build-cache"
+export GOMODCACHE="$cache/modules"
+export CGO_ENABLED=0
+cd "$repo"
+go build -trimpath -o "$cache/microstick-dev" ./cmd/microstick-dev
+"$cache/microstick-dev" --repository "$repo" "$@"

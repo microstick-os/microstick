@@ -1,0 +1,50 @@
+#!/bin/sh
+# Called under router.lock. Never flush built-in or third-party chains.
+set -eu
+r=${MICROSTICK_RUN:-/run/microstick}
+e=${MICROSTICK_ETC:-/etc/microstick}
+data=${MICROSTICK_ROUTER_DATA:-/usr/share/microstick/router}
+self=${MICROSTICK_ROUTER:-/usr/libexec/microstick-router}
+usb=$(cat "$r/usb-iface" 2>/dev/null || echo usb0)
+wifi=$(cat "$r/wifi-interface" 2>/dev/null || echo unavailable)
+mode=$(cat "$r/lan-mode" 2>/dev/null || echo off)
+sta=''
+if [ "$mode" = sta ]; then
+ sta=$(ip -4 -o addr show dev "$wifi" scope global | awk '$3=="inet" {print $4;exit}')
+fi
+up=${1:-}
+case "$up" in ''|wwan[0-9]*|"$wifi") ;; *) exit 1;; esac
+case "$usb$wifi$up" in *[!a-zA-Z0-9_.-]*) exit 1;; esac
+lte=$(cat "$r/lte-iface" 2>/dev/null || :)
+case "$lte" in wwan[0-9]*) case "${lte#wwan}" in *[!0-9]*) exit 1;; esac;; *) lte='';; esac
+lan=${MICROSTICK_LAN_CONFIG:-$r/lan-effective.json.tmp}
+policy=${MICROSTICK_FIREWALL_CONFIG:-$e/firewall.json}
+if [ ! -f "$policy" ]; then policy=$r/firewall-empty.json; echo '{"rules":[]}' > "$policy"; fi
+bindings=$r/clients-all.json
+[ "${MICROSTICK_ROUTER_WORKER:-no}" != yes ] || bindings=$r/client-bindings.json
+[ -f "$bindings" ] || echo '[]' > "$bindings"
+# Stable policy/IP-binding fingerprint keeps the idle supervisor inexpensive.
+jq -cn --slurpfile lan "$lan" --slurpfile policy "$policy" --slurpfile clients "$bindings" \
+ --arg sta "$sta" --arg mode "$mode" --arg up "$up" --arg usb "$usb" --arg wifi "$wifi" --arg lte "$lte" \
+ '{sta:$sta,lan:$lan[0],policy:$policy[0],mode:$mode,up:$up,usb:$usb,wifi:$wifi,lte:$lte,bindings:[$clients[0][]|{network,mac,ips}]}' | sha256sum > "$r/firewall.fingerprint.new"
+if [ "${MICROSTICK_FIREWALL_FORCE:-no}" != yes ] && cmp -s "$r/firewall.fingerprint.new" "$r/firewall.fingerprint" && iptables -w 3 -C FORWARD -j MICROSTICK_FORWARD >/dev/null 2>&1; then exit 0; fi
+flag() { if "$@" >/dev/null 2>&1; then echo false; else echo true; fi; }
+jq -nr --slurpfile lan "$lan" --slurpfile policy "$policy" --slurpfile clients "$bindings" \
+ --arg usb "$usb" --arg wifi "$wifi" --arg sta "$sta" --arg mode "$mode" --arg up "$up" --arg lte "$lte" \
+ --argjson input_jump "$(flag iptables -w 3 -C INPUT -j MICROSTICK_INPUT)" \
+ --argjson forward_jump "$(flag iptables -w 3 -C FORWARD -j MICROSTICK_FORWARD)" \
+ --argjson nat_jump "$(flag iptables -w 3 -t nat -C POSTROUTING -j MICROSTICK_NAT)" \
+ --argjson mss "$(flag iptables -w 3 -t mangle -C FORWARD -p tcp --tcp-flags SYN,RST SYN -j TCPMSS --clamp-mss-to-pmtu)" \
+ -f "$data/firewall.jq" > "$r/firewall.rules.new"
+# Don't reset counters or commit rules every polling cycle.
+if [ "${MICROSTICK_FIREWALL_FORCE:-no}" != yes ] && cmp -s "$r/firewall.rules.new" "$r/firewall.rules"; then mv "$r/firewall.fingerprint.new" "$r/firewall.fingerprint"; exit 0; fi
+modprobe xt_mac
+iptables-restore -w 3 --test --noflush < "$r/firewall.rules.new"
+[ "${MICROSTICK_FIREWALL_TEST_ONLY:-no}" != yes ] || exit 0
+iptables-save > "$r/firewall.previous"
+if ! iptables-restore -w 3 --noflush < "$r/firewall.rules.new"; then
+ iptables-restore -w 3 < "$r/firewall.previous" || :
+ exit 1
+fi
+mv "$r/firewall.rules.new" "$r/firewall.rules"
+mv "$r/firewall.fingerprint.new" "$r/firewall.fingerprint"

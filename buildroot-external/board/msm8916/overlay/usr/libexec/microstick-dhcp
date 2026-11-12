@@ -1,0 +1,51 @@
+#!/bin/sh
+set -eu
+. "${MICROSTICK_LIBRARY:-/usr/lib/microstick/network.sh}"
+. "$MICROSTICK_ETC/network.conf"
+load_lan
+case "$interface" in
+ ${WIFI_INTERFACE}) name=wifi; metric=$WIFI_METRIC ;;
+ wwan[0-9]*) valid_iface "$interface" || exit 1; name=lte; metric=$LTE_METRIC ;;
+ *) exit 1 ;;
+esac
+deconfigure() {
+    "$MICROSTICK_IP" -4 addr flush dev "$interface" || :
+    "$MICROSTICK_IP" -4 route flush dev "$interface" proto 186 || :
+    rm -f "$MICROSTICK_RUN/$name-dns"
+}
+case "$1" in
+ deconfig|nak)
+    deconfigure
+    ;;
+ bound|renew)
+    # BusyBox exports mask/prefix depending on build; derive a prefix from subnet.
+    if ! prefix=$(jq -nr --arg mask "${subnet:-255.255.255.0}" '
+      $mask | split(".") | map(tonumber) |
+      reduce .[] as $n ({bits:0,zero:false};
+        if .zero and $n != 0 then error("non-contiguous netmask") else
+        ([0,128,192,224,240,248,252,254,255] | index($n)) as $bits |
+        if $bits == null then error("netmask") else .bits += $bits | .zero = (.zero or $n != 255) end end) | .bits'); then
+        deconfigure
+        microstick_error "Invalid DHCP netmask on $interface"
+        exit 1
+    fi
+    if ! check_overlap "$ip" "$prefix"; then
+        microstick_error "DHCP address on $interface invalid or overlaps LAN"
+        deconfigure
+        exit 1
+    fi
+    "$MICROSTICK_IP" -4 addr flush dev "$interface"
+    "$MICROSTICK_IP" -4 addr add "$ip/$prefix" dev "$interface"
+    "$MICROSTICK_IP" -4 route flush dev "$interface" proto 186 || :
+    gateway=${router:-}
+    gateway=${gateway%% *}
+    if [ -n "$gateway" ]; then
+        "$MICROSTICK_IP" -4 route replace default via "$gateway" dev "$interface" onlink metric "$metric" proto 186
+    elif [ "$name" = lte ]; then
+        "$MICROSTICK_IP" -4 route replace default dev "$interface" metric "$metric" proto 186
+    fi
+    : > "$MICROSTICK_RUN/$name-dns.new"
+    for server in ${dns:-}; do printf 'nameserver %s\n' "$server" >> "$MICROSTICK_RUN/$name-dns.new"; done
+    mv "$MICROSTICK_RUN/$name-dns.new" "$MICROSTICK_RUN/$name-dns"
+    ;;
+esac

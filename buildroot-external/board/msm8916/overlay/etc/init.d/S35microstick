@@ -1,0 +1,21 @@
+#!/bin/sh
+set -eu
+case "$1" in
+ start)
+   # Bind USB exactly once. Service restarts must not disconnect the host.
+   /usr/libexec/microstick-usb
+   mkdir -p /run/microstick/services
+   for service in qrtr rmtfs modem core router network discovery ntp clock; do
+     mkdir -p "/run/microstick/services/$service"
+     printf '#!/bin/sh\nexec /usr/libexec/microstick-service %s\n' "$service" > "/run/microstick/services/$service/run"
+     chmod 755 "/run/microstick/services/$service/run"
+   done
+   start-stop-daemon -S -b -m -p /run/microstick/runsvdir.pid -x /usr/bin/runsvdir -- /run/microstick/services
+   ;;
+ stop)
+   for service in discovery network router core ntp modem rmtfs qrtr clock; do sv down "/run/microstick/services/$service" || :; done
+   start-stop-daemon -K -p /run/microstick/runsvdir.pid || :
+   killall ntpd 2>/dev/null || :
+   ;;
+ *) exit 2 ;;
+esac

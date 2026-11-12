@@ -1,0 +1,24 @@
+{
+  "runtime-filesystem": {
+    "url": "https://github.com/OpenStick/OpenStick/releases/download/v1/debian.zip",
+    "sha256": "8be6f100e8fc3f612e0b03c199d01f51d38b953a19343ad0f4cf7a2f7a57f603",
+    "member": "debian/rootfs.img",
+    "file": "runtime-filesystem.zip"
+  },
+  "runtime-boot": {
+    "url": "https://github.com/OpenStick/OpenStick/releases/download/v1/boot-ufi001c.img",
+    "sha256": "a2b527e98a5cee0a4c3cad5099af7ce0648246f19d20d13ef2c168e400c81b33",
+    "file": "runtime-boot.img"
+  },
+  "modem-loader": {
+    "url": "https://github.com/OpenStick/OpenStick/releases/download/v1/firmware-ufi001c.zip",
+    "sha256": "bb300d6f29a43982d14633254c7de3c810490c5b7f6a206a20c47922ac1802dc",
+    "member": "firmware-ufi001c/mba.mbn",
+    "file": "modem-loader.zip"
+  },
+  "boot-firmware": {
+    "url": "https://github.com/OpenStick/OpenStick/releases/download/v1/base-generic.zip",
+    "sha256": "b609b91c94b07d7cde4141a578df5c1440fbe75140f0c645c7124356774e2418",
+    "file": "microstick-boot-firmware-v1.zip"
+  }
+}

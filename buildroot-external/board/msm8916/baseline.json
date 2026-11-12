@@ -1,0 +1,360 @@
+{
+  "kernel_release": "5.15.0-handsomekernel+",
+  "kernel_build": 17,
+  "files": {
+    "kernel/running.config": {
+      "bytes": 151437,
+      "sha256": "2afc6b3c6154be5c45f5c190a053b7559774ad8ba2a367b456acd86b30c894e0"
+    },
+    "device-tree/boot-image.dtb": {
+      "bytes": 50292,
+      "sha256": "6c0fb523f6a220794081c5866e39a84d3604d67d91ec68f376d1b7458766fa34"
+    },
+    "boot/kernel.gz": {
+      "bytes": 6907165,
+      "sha256": "fcd866f3957ec8606c45e095c66dd7cec595bd5801f2e0afe99f82b74062d30a"
+    },
+    "kernel/kernel-and-modules-tree/lib/modules/5.15.0-handsomekernel+/kernel/arch/arm64/crypto/aes-neon-blk.ko": {
+      "bytes": 28968,
+      "sha256": "1272d48c76f01f7a709a94e46a3cf23e7454f78f9246717539eeb4dc831f4808"
+    },
+    "kernel/kernel-and-modules-tree/lib/modules/5.15.0-handsomekernel+/kernel/arch/arm64/crypto/aes-neon-bs.ko": {
+      "bytes": 23384,
+      "sha256": "f8c5104ec7cd10a2fa49f79f2322fb84fa167194e6ac43dd9872601ce47f95e2"
+    },
+    "kernel/kernel-and-modules-tree/lib/modules/5.15.0-handsomekernel+/kernel/crypto/ccm.ko": {
+      "bytes": 19256,
+      "sha256": "c3859a7273e24bee43abbd364542a049e116baf9aae3fa0810bc6057ec995d60"
+    },
+    "kernel/kernel-and-modules-tree/lib/modules/5.15.0-handsomekernel+/kernel/crypto/cmac.ko": {
+      "bytes": 8664,
+      "sha256": "ec46de9d262cdd5c6d4ef024cdfea2b570a5963c6266708329c65354f6f7d623"
+    },
+    "kernel/kernel-and-modules-tree/lib/modules/5.15.0-handsomekernel+/kernel/drivers/net/wireless/ath/wcn36xx/wcn36xx.ko": {
+      "bytes": 117584,
+      "sha256": "b6b2a53a7f55ef608b4939c77716a08b00d17d2d2572b09bba87924322bd68ff"
+    },
+    "kernel/kernel-and-modules-tree/lib/modules/5.15.0-handsomekernel+/kernel/drivers/net/wwan/qcom_bam_dmux.ko": {
+      "bytes": 30584,
+      "sha256": "89684b1850dd8c15ce259492610b92ba262efd03f1e7b643b23fb9202ee70048"
+    },
+    "kernel/kernel-and-modules-tree/lib/modules/5.15.0-handsomekernel+/kernel/drivers/net/wwan/rpmsg_wwan_ctrl.ko": {
+      "bytes": 8608,
+      "sha256": "9de43f1e34ae6a4e24a877ee433f916738720c0f9b5e782d65adc1da387c6b7d"
+    },
+    "kernel/kernel-and-modules-tree/lib/modules/5.15.0-handsomekernel+/kernel/drivers/remoteproc/qcom_common.ko": {
+      "bytes": 14352,
+      "sha256": "06db74309c479bf96c97899549e8cb1c40c30e8ce05a92d8abbf3a76e6210fc8"
+    },
+    "kernel/kernel-and-modules-tree/lib/modules/5.15.0-handsomekernel+/kernel/drivers/remoteproc/qcom_pil_info.ko": {
+      "bytes": 7240,
+      "sha256": "3fc5cb05158cd665c136d39bae23ee7886a87cadf51beab6186872273e7020b2"
+    },
+    "kernel/kernel-and-modules-tree/lib/modules/5.15.0-handsomekernel+/kernel/drivers/remoteproc/qcom_q6v5.ko": {
+      "bytes": 11208,
+      "sha256": "fbbca8c12b6af56acc109ac3cf2958b3f567bbe7a5bb08041a407bfe8cf32410"
+    },
+    "kernel/kernel-and-modules-tree/lib/modules/5.15.0-handsomekernel+/kernel/drivers/remoteproc/qcom_q6v5_mss.ko": {
+      "bytes": 47544,
+      "sha256": "45c40043530b69c76d4520f138ea73e847abc7020300769c425b47d9cf747fa5"
+    },
+    "kernel/kernel-and-modules-tree/lib/modules/5.15.0-handsomekernel+/kernel/drivers/remoteproc/qcom_wcnss_pil.ko": {
+      "bytes": 25808,
+      "sha256": "60b2041137d5aa7b12acaf734f038a0fa9e07e86e65dd4f16eaea5df5ad1b4da"
+    },
+    "kernel/kernel-and-modules-tree/lib/modules/5.15.0-handsomekernel+/kernel/drivers/soc/qcom/mdt_loader.ko": {
+      "bytes": 8848,
+      "sha256": "36fb9fe45a44372d25446efc34ea31dbf0a25b713a751143792c129b55e2bd68"
+    },
+    "kernel/kernel-and-modules-tree/lib/modules/5.15.0-handsomekernel+/kernel/drivers/soc/qcom/wcnss_ctrl.ko": {
+      "bytes": 12176,
+      "sha256": "44d07719fc79e7ce3dda9033cf1ac32a3a6cbf0a5be2aca50e628877eb194e03"
+    },
+    "kernel/kernel-and-modules-tree/lib/modules/5.15.0-handsomekernel+/kernel/lib/crypto/libarc4.ko": {
+      "bytes": 4512,
+      "sha256": "32200e4f772a81a2e5f79954634b3d7e8ea353dcf5eb74a2cee205bc3295d913"
+    },
+    "kernel/kernel-and-modules-tree/lib/modules/5.15.0-handsomekernel+/kernel/lib/libcrc32c.ko": {
+      "bytes": 6664,
+      "sha256": "89b591addabdfba020f7b0c2ab8d8dbf32724a00c2c13879e3919d09c543c79c"
+    },
+    "kernel/kernel-and-modules-tree/lib/modules/5.15.0-handsomekernel+/kernel/net/ipv4/netfilter/ip_tables.ko": {
+      "bytes": 35432,
+      "sha256": "10434b72071a2727f82d36b3465b17857bbdcf5fdefa05b072bc077f07968b69"
+    },
+    "kernel/kernel-and-modules-tree/lib/modules/5.15.0-handsomekernel+/kernel/net/ipv4/netfilter/iptable_filter.ko": {
+      "bytes": 8152,
+      "sha256": "7b03ba24cb4d457bc5da49bd79b8cd0ba8e49d79f01c21c0ec473f09442d0480"
+    },
+    "kernel/kernel-and-modules-tree/lib/modules/5.15.0-handsomekernel+/kernel/net/ipv4/netfilter/iptable_mangle.ko": {
+      "bytes": 7736,
+      "sha256": "94d5fe6bc0b73df54ae9630bc58b556a86aad0caa373f06e19851f87bfc3db9e"
+    },
+    "kernel/kernel-and-modules-tree/lib/modules/5.15.0-handsomekernel+/kernel/net/ipv4/netfilter/iptable_nat.ko": {
+      "bytes": 8480,
+      "sha256": "f0ece34a77ca2a3fe9d1259d281ba76d1dd7e82fa10b7d80f81fb510adbda6d8"
+    },
+    "kernel/kernel-and-modules-tree/lib/modules/5.15.0-handsomekernel+/kernel/net/ipv4/netfilter/nf_defrag_ipv4.ko": {
+      "bytes": 7704,
+      "sha256": "ccf22a0c4e5aee6ec7b73a0476a67b83c961709e3d5da61c4840bd45d0500184"
+    },
+    "kernel/kernel-and-modules-tree/lib/modules/5.15.0-handsomekernel+/kernel/net/ipv6/ipv6.ko": {
+      "bytes": 806608,
+      "sha256": "543b381338e29411d8a02a20bdb0546dd6d6bda703fae0f9496d34222f3c8f19"
+    },
+    "kernel/kernel-and-modules-tree/lib/modules/5.15.0-handsomekernel+/kernel/net/ipv6/netfilter/nf_defrag_ipv6.ko": {
+      "bytes": 27024,
+      "sha256": "6266f881a74de17605af09edaa0bbd17661cbc6d2b2a52fd919e6011097f7838"
+    },
+    "kernel/kernel-and-modules-tree/lib/modules/5.15.0-handsomekernel+/kernel/net/mac80211/mac80211.ko": {
+      "bytes": 711224,
+      "sha256": "06addaa326cb6b07f58a8e1e8cd0179f6a886c2face5eb598b5571a97a5e3e5c"
+    },
+    "kernel/kernel-and-modules-tree/lib/modules/5.15.0-handsomekernel+/kernel/net/netfilter/nf_conntrack.ko": {
+      "bytes": 224152,
+      "sha256": "bc359f8dbbe4d05d89c20137e080aa2970f4fafda8d7fa90b3103c9f3f904c53"
+    },
+    "kernel/kernel-and-modules-tree/lib/modules/5.15.0-handsomekernel+/kernel/net/netfilter/nf_log_syslog.ko": {
+      "bytes": 27512,
+      "sha256": "fc0eeab0279798a407188e6f9ab3f25e25b56a5087035889973919cc49883406"
+    },
+    "kernel/kernel-and-modules-tree/lib/modules/5.15.0-handsomekernel+/kernel/net/netfilter/nf_nat.ko": {
+      "bytes": 52464,
+      "sha256": "7effddc7a5882c2f4fa1f8f6e6c3f830f91f8128e18b9c846f95c57d048eb1e1"
+    },
+    "kernel/kernel-and-modules-tree/lib/modules/5.15.0-handsomekernel+/kernel/net/netfilter/nf_tables.ko": {
+      "bytes": 277304,
+      "sha256": "af1befc119355415a1dbed635d8fa2eb677017ac489734f942e8116ea2b857ae"
+    },
+    "kernel/kernel-and-modules-tree/lib/modules/5.15.0-handsomekernel+/kernel/net/netfilter/nft_counter.ko": {
+      "bytes": 11440,
+      "sha256": "215653e95629017544dfbedc9138ba6b81d1a3218873916f8a414bed83209ebf"
+    },
+    "kernel/kernel-and-modules-tree/lib/modules/5.15.0-handsomekernel+/kernel/net/netfilter/x_tables.ko": {
+      "bytes": 61848,
+      "sha256": "804c12ac67ff4630308b5272f39810e9f9468df698eced877eb1c60b194e7b19"
+    },
+    "kernel/kernel-and-modules-tree/lib/modules/5.15.0-handsomekernel+/kernel/net/netfilter/xt_LOG.ko": {
+      "bytes": 8392,
+      "sha256": "aef02aafff4f3b1c9bcf7dbb8fcc885f5e3a3278e575c6fe4df9aa009864b311"
+    },
+    "kernel/kernel-and-modules-tree/lib/modules/5.15.0-handsomekernel+/kernel/net/netfilter/xt_MASQUERADE.ko": {
+      "bytes": 8560,
+      "sha256": "1b0b2ae6cdf758647d01cc33100a61ba3ffe0c85739c8ec7816ef69c5f010b37"
+    },
+    "kernel/kernel-and-modules-tree/lib/modules/5.15.0-handsomekernel+/kernel/net/netfilter/xt_REDIRECT.ko": {
+      "bytes": 8072,
+      "sha256": "8897adc4c9c8e54e9c297ae71d77939858e31cedcd7f897c07fd805930f8e397"
+    },
+    "kernel/kernel-and-modules-tree/lib/modules/5.15.0-handsomekernel+/kernel/net/netfilter/xt_TCPMSS.ko": {
+      "bytes": 10184,
+      "sha256": "42a03e039f9ea207741339f47aad06357629a1f14b1fbfdd36aa8a25af9d4194"
+    },
+    "kernel/kernel-and-modules-tree/lib/modules/5.15.0-handsomekernel+/kernel/net/netfilter/xt_conntrack.ko": {
+      "bytes": 8592,
+      "sha256": "89060986d6f818f2f26ab38e1274823c2835dc8edca182bafc1f4b2b3679a12d"
+    },
+    "kernel/kernel-and-modules-tree/lib/modules/5.15.0-handsomekernel+/kernel/net/netfilter/xt_mac.ko": {
+      "bytes": 5288,
+      "sha256": "62c28285d2e4d645582cbbc6cf9ded92942f521099d12e232fda00af986e68c0"
+    },
+    "kernel/kernel-and-modules-tree/lib/modules/5.15.0-handsomekernel+/kernel/net/netfilter/xt_tcpudp.ko": {
+      "bytes": 10648,
+      "sha256": "8ef3e994dbcee633b740e5e5e7a05c5d16b1591df66c03e5a94629b61a7d2247"
+    },
+    "kernel/kernel-and-modules-tree/lib/modules/5.15.0-handsomekernel+/kernel/net/wireless/cfg80211.ko": {
+      "bytes": 519280,
+      "sha256": "3a4c78eeed017e9368698073246dbdb66818a420a70b332a3f981410c9409821"
+    },
+    "kernel/kernel-and-modules-tree/lib/modules/5.15.0-handsomekernel+/modules.dep": {
+      "bytes": 32684,
+      "sha256": "122d911b6bf87d315fb39c98221e3623602864393b4a8f604e62760054b26882"
+    },
+    "kernel/kernel-and-modules-tree/lib/modules/5.15.0-handsomekernel+/modules.builtin": {
+      "bytes": 10591,
+      "sha256": "fae2c4cc6b6a1bb39dcc2045b18b0b639b5e74c60b46f83084531317ba844cec"
+    },
+    "kernel/kernel-and-modules-tree/lib/modules/5.15.0-handsomekernel+/modules.builtin.modinfo": {
+      "bytes": 65367,
+      "sha256": "7ac07825160986d373a5bd773ef4964e7f00c59039c0cdd96d622148ac352f87"
+    },
+    "kernel/kernel-and-modules-tree/lib/modules/5.15.0-handsomekernel+/modules.softdep": {
+      "bytes": 215,
+      "sha256": "016d1562cd41160d54c2c3fd638280ae74ff41201407af5859828d39382609d2"
+    }
+  },
+  "dsp_files": {
+    "mba.mbn": {
+      "bytes": 230272,
+      "sha256": "bcd6100886b10d0d36ce17b1ae70fdc4fd429ab3a0337e0b7cef9aa9b04b60c4"
+    },
+    "modem.b00": {
+      "bytes": 916,
+      "sha256": "1a6c1b84d43e1694118b1288b9bd7fc9373a6f68e8ffe808bd73aa3ae98bc22e"
+    },
+    "modem.b01": {
+      "bytes": 7304,
+      "sha256": "feec178e00ef18fbedffe9bb9ad10af8169e42dac69ded1561e3b760270dc02a"
+    },
+    "modem.b02": {
+      "bytes": 4212,
+      "sha256": "6ba80ca5342edf6476e278ea85d285d96beceb889d590efd13ae8ad8441ce4c0"
+    },
+    "modem.b03": {
+      "bytes": 5376,
+      "sha256": "e5de309f5ef2a62e799302c8b6349e5eadc39be00983b349a4298a20ae21b4d5"
+    },
+    "modem.b04": {
+      "bytes": 139616,
+      "sha256": "b09b1c7fcb05d3269f455cf2b1717a4c790057992a548f92e589c4109a53f952"
+    },
+    "modem.b05": {
+      "bytes": 81920,
+      "sha256": "bb2c59f500b9a12cabe97f4c158ee71afce8c6e7cddafb16c7a1e9ed2717ba42"
+    },
+    "modem.b08": {
+      "bytes": 172200,
+      "sha256": "899a468b6c03fefb273a2418ca03b9c86daaf10d0d1b269b5a7feec72895139a"
+    },
+    "modem.b10": {
+      "bytes": 48704,
+      "sha256": "5b7c056e67bad7c5ca2633faa3f8515f4987f076bf6c9795b5d0af56f2fa3cc9"
+    },
+    "modem.b11": {
+      "bytes": 46344,
+      "sha256": "5709f063554738b3f6bc25189a6da2485877b080f13c3cef0ab0525e5a3517dd"
+    },
+    "modem.b13": {
+      "bytes": 99492,
+      "sha256": "e04b6d07bd1cdeb7d0455dfa6eaec5dc608ddd5f50a1507ed2f2fcaf23ac1377"
+    },
+    "modem.b14": {
+      "bytes": 115252,
+      "sha256": "7f9a199f439954c2c1b8768f20f0ce3b883969156e7395eaf1fdffafc2d8fbee"
+    },
+    "modem.b15": {
+      "bytes": 1660760,
+      "sha256": "73c456d888cbddf01fe963c08cc6e28ddb867012132ca774025d4245b0b5e7cd"
+    },
+    "modem.b16": {
+      "bytes": 19195408,
+      "sha256": "ef581a14b3aafe1bd5729c522dd518d89dbd70eb4df3b185aa88e161d35aac7e"
+    },
+    "modem.b17": {
+      "bytes": 663520,
+      "sha256": "cc3635fbbf00db873bc4aa1d94edcef4dca25ca93dcd334f05ed4b0c53c1b34c"
+    },
+    "modem.b18": {
+      "bytes": 7648128,
+      "sha256": "a33dec7d54086b52b0acb4c347c3dccd1fb14963358416e045f06ac40169948a"
+    },
+    "modem.b19": {
+      "bytes": 3077320,
+      "sha256": "7d6a73422ded43b111d6c786995ce60f78a8712b85ad04b245d4efa44c410796"
+    },
+    "modem.b22": {
+      "bytes": 75784,
+      "sha256": "ec40d4dcc05e7b01e15ddbe447d2dddee45f1949b622ef5f1f9234cda837c3e7"
+    },
+    "modem.b23": {
+      "bytes": 502726,
+      "sha256": "f23a9d8cc0300a433b75e199e3fbc2039b2dd32dc9588d7281c9bdb401d2fc61"
+    },
+    "modem.b24": {
+      "bytes": 7858404,
+      "sha256": "b028f4900ea2bb7cfce7f7bec3fe9c704d754a1e89bee0d21b9bc75083c8ae7a"
+    },
+    "modem.b25": {
+      "bytes": 300476,
+      "sha256": "dc0010b7284b2ce5dc3c3601e2d2d198c3d9383626b465e9840ace61b534afac"
+    },
+    "modem.mdt": {
+      "bytes": 8220,
+      "sha256": "48a19643c56953be52200af8b1e294bfc69dad694c84debfc32cb5fc565a2f11"
+    },
+    "wcnss.b00": {
+      "bytes": 436,
+      "sha256": "10ca8ee09d66f1642dc9f718db63189e7e1fd53e5d769218baddafab5d656afb"
+    },
+    "wcnss.b01": {
+      "bytes": 6824,
+      "sha256": "80f9c255ae7d430f9f630433ae3d3ac57ad0f52b98becb3cc10986c858e5bc80"
+    },
+    "wcnss.b02": {
+      "bytes": 13052,
+      "sha256": "14289d586add42018daef6992e4c2aeb69f8c6b3779ace58d3d457950013e7ae"
+    },
+    "wcnss.b04": {
+      "bytes": 61440,
+      "sha256": "88002d745b78835c85bcf736266e0fdc0e1b52d0ed870406118eaa41a5cce12b"
+    },
+    "wcnss.b06": {
+      "bytes": 3374964,
+      "sha256": "cda73b2036eb04b31f4e27edf6a46493e17dc778a2b141a57dceb002e2be9970"
+    },
+    "wcnss.b09": {
+      "bytes": 52,
+      "sha256": "7955cb2de90dd9efc6df9fdbf5f5d10c114f4135a9a6b52db1003be749e32f7a"
+    },
+    "wcnss.b10": {
+      "bytes": 655360,
+      "sha256": "ff6335069b6e140eb47149d847aea80bf7e2b06bd80ae9708aa382efb3ae21ee"
+    },
+    "wcnss.b11": {
+      "bytes": 39704,
+      "sha256": "03f3b6cf9a7bcf21d6523d8d684c6a150e4b69ddd86ee0ff5d97331e31bf0dd5"
+    },
+    "wcnss.mdt": {
+      "bytes": 7260,
+      "sha256": "2bc719366ea204207f6fe3645930d1511276504ecb51d4a32d013e4ed440846c"
+    }
+  },
+  "factory_data_guard": {
+    "item": 2500,
+    "marker": "HiMI_OK",
+    "write_only_when_zero": true,
+    "firmware_file": "modem.b18",
+    "firmware_sha256": "a33dec7d54086b52b0acb4c347c3dccd1fb14963358416e045f06ac40169948a",
+    "reason": "Firmware-specific NV2500 guard for lte_ml1_common.c:324; HiMI_OK is written only when the item is all-zero, in the rmtfs RAM shadow."
+  },
+  "module_paths": [
+    "5.15.0-handsomekernel+/kernel/arch/arm64/crypto/aes-neon-blk.ko",
+    "5.15.0-handsomekernel+/kernel/arch/arm64/crypto/aes-neon-bs.ko",
+    "5.15.0-handsomekernel+/kernel/crypto/ccm.ko",
+    "5.15.0-handsomekernel+/kernel/crypto/cmac.ko",
+    "5.15.0-handsomekernel+/kernel/drivers/net/wireless/ath/wcn36xx/wcn36xx.ko",
+    "5.15.0-handsomekernel+/kernel/drivers/net/wwan/qcom_bam_dmux.ko",
+    "5.15.0-handsomekernel+/kernel/drivers/net/wwan/rpmsg_wwan_ctrl.ko",
+    "5.15.0-handsomekernel+/kernel/drivers/remoteproc/qcom_common.ko",
+    "5.15.0-handsomekernel+/kernel/drivers/remoteproc/qcom_pil_info.ko",
+    "5.15.0-handsomekernel+/kernel/drivers/remoteproc/qcom_q6v5.ko",
+    "5.15.0-handsomekernel+/kernel/drivers/remoteproc/qcom_q6v5_mss.ko",
+    "5.15.0-handsomekernel+/kernel/drivers/remoteproc/qcom_wcnss_pil.ko",
+    "5.15.0-handsomekernel+/kernel/drivers/soc/qcom/mdt_loader.ko",
+    "5.15.0-handsomekernel+/kernel/drivers/soc/qcom/wcnss_ctrl.ko",
+    "5.15.0-handsomekernel+/kernel/lib/crypto/libarc4.ko",
+    "5.15.0-handsomekernel+/kernel/lib/libcrc32c.ko",
+    "5.15.0-handsomekernel+/kernel/net/ipv4/netfilter/ip_tables.ko",
+    "5.15.0-handsomekernel+/kernel/net/ipv4/netfilter/iptable_filter.ko",
+    "5.15.0-handsomekernel+/kernel/net/ipv4/netfilter/iptable_mangle.ko",
+    "5.15.0-handsomekernel+/kernel/net/ipv4/netfilter/iptable_nat.ko",
+    "5.15.0-handsomekernel+/kernel/net/ipv4/netfilter/nf_defrag_ipv4.ko",
+    "5.15.0-handsomekernel+/kernel/net/ipv6/ipv6.ko",
+    "5.15.0-handsomekernel+/kernel/net/ipv6/netfilter/nf_defrag_ipv6.ko",
+    "5.15.0-handsomekernel+/kernel/net/mac80211/mac80211.ko",
+    "5.15.0-handsomekernel+/kernel/net/netfilter/nf_conntrack.ko",
+    "5.15.0-handsomekernel+/kernel/net/netfilter/nf_log_syslog.ko",
+    "5.15.0-handsomekernel+/kernel/net/netfilter/nf_nat.ko",
+    "5.15.0-handsomekernel+/kernel/net/netfilter/nf_tables.ko",
+    "5.15.0-handsomekernel+/kernel/net/netfilter/nft_counter.ko",
+    "5.15.0-handsomekernel+/kernel/net/netfilter/x_tables.ko",
+    "5.15.0-handsomekernel+/kernel/net/netfilter/xt_LOG.ko",
+    "5.15.0-handsomekernel+/kernel/net/netfilter/xt_MASQUERADE.ko",
+    "5.15.0-handsomekernel+/kernel/net/netfilter/xt_REDIRECT.ko",
+    "5.15.0-handsomekernel+/kernel/net/netfilter/xt_TCPMSS.ko",
+    "5.15.0-handsomekernel+/kernel/net/netfilter/xt_conntrack.ko",
+    "5.15.0-handsomekernel+/kernel/net/netfilter/xt_mac.ko",
+    "5.15.0-handsomekernel+/kernel/net/netfilter/xt_tcpudp.ko",
+    "5.15.0-handsomekernel+/kernel/net/wireless/cfg80211.ko"
+  ]
+}

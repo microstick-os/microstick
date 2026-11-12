@@ -1,0 +1,6 @@
+#!/bin/sh
+# Self-contained lifecycle cleanup, also usable after the plugin folder was deleted.
+# Only this plugin's private table; no global flush and no persistent state creation.
+if nft list table ip microstick_statistics >/dev/null 2>&1; then
+ nft delete table ip microstick_statistics
+fi
