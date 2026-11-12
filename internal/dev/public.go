@@ -20,7 +20,7 @@ import (
 
 func PublicFiles(repo string) ([]string, error) {
 	top := map[string]bool{"README.md": true, "README.ru.md": true, ".gitignore": true, "extract-blobs": true, "check-public": true, "prepare-install": true, "devtool": true, "flasher": true, "go.mod": true, "go.sum": true}
-	dirs := map[string]bool{"buildroot-external": true, "docs": true, "cmd": true, "internal": true, "scripts": true}
+	dirs := map[string]bool{"buildroot-external": true, "docs": true, "cmd": true, "internal": true, "scripts": true, "boards": true, ".github": true}
 	extensions := map[string]bool{"": true, ".md": true, ".go": true, ".c": true, ".h": true, ".mk": true, ".in": true, ".desc": true, ".patch": true, ".hash": true, ".conf": true, ".fragment": true, ".properties": true, ".service": true, ".sh": true, ".jq": true, ".json": true, ".html": true, ".js": true, ".css": true, ".svg": true, ".rules": true}
 	private := map[string]bool{"credentials.json": true, "sessions.json": true, "default-auth.json": true, "default-imei.json": true, "MANIFEST.json": true, "SHA256SUMS": true, "auth.json": true}
 	key := regexp.MustCompile(`(?m)^-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----`)
@@ -53,6 +53,9 @@ func PublicFiles(repo string) ([]string, error) {
 		}
 		allowed := (len(parts) == 1 && top[d.Name()]) || (len(parts) > 1 && dirs[parts[0]] && extensions[filepath.Ext(path)])
 		allowed = allowed || (strings.HasPrefix(filepath.ToSlash(rel), "internal/dev/testdata/firehose/") && filepath.Ext(path) == ".xml")
+		if parts[0] == ".github" {
+			allowed = filepath.ToSlash(rel) == ".github/workflows/boards.yml"
+		}
 		documentationPNG := filepath.ToSlash(rel) == "docs/images/desktop_en.png" || filepath.ToSlash(rel) == "docs/images/desktop_ru.png"
 		allowed = allowed || documentationPNG
 		if !allowed || private[d.Name()] || strings.Contains(rel, string(os.PathSeparator)+".state"+string(os.PathSeparator)) {

@@ -3,6 +3,7 @@ package dev
 import (
 	"archive/tar"
 	"bytes"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
@@ -60,6 +61,20 @@ func publicRootfsTar(p Paths, source, destination string) error {
 		}
 		if name == "etc/machine-id" {
 			replacement = []byte{}
+		}
+		if name == "usr/share/microstick/build.json" {
+			var metadata map[string]any
+			decoder := json.NewDecoder(io.LimitReader(tr, 1<<20))
+			if e = decoder.Decode(&metadata); e != nil {
+				return e
+			}
+			delete(metadata, "device_only")
+			delete(metadata, "device_id")
+			replacement, e = json.MarshalIndent(metadata, "", "  ")
+			if e != nil {
+				return e
+			}
+			replacement = append(replacement, '\n')
 		}
 		for _, file := range []string{"network.conf", "usb.conf", "lte.properties", "ttl.conf", "wpa_supplicant.conf"} {
 			if name == "etc/microstick/"+file {

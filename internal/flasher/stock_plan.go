@@ -11,19 +11,11 @@ func canonicalStockProfile(p HardwareProfile) bool {
 	return p.Recipe == StockRecipe && canonicalNativeProfile(p)
 }
 func canonicalNativeProfile(p HardwareProfile) bool {
-	catalog, e := Catalog()
-	if e != nil {
-		return false
-	}
-	for _, known := range catalog {
-		if p.ID == known.ID && known.Qualified && p.Recipe == known.Recipe && Hash(p) == Hash(known) {
-			return true
-		}
-	}
-	return false
+	a := p.authorization
+	return a != nil && a.snapshot.trusted && a.digest == Hash(p) && p.Qualified && p.Compatibility().Status == ""
 }
 func buildStockPlan(ctx context.Context, d Reader, r HardwareReport, profile HardwareProfile, images, quick, backup string, mapper ...string) (InstallPlan, error) {
-	p := InstallPlan{Version: Schema, Device: r.Device, Profile: profile.ID, Recipe: StockRecipe, Mode: "install", qualification: &profile}
+	p := InstallPlan{Version: Schema, Device: r.Device, Profile: profile.ID, Recipe: StockRecipe, Mode: "install", qualification: &profile, Registry: profile.ProfileReference()}
 	if !canonicalStockProfile(profile) {
 		return p, ErrUnsupported
 	}
@@ -42,6 +34,9 @@ func buildStockPlan(ctx context.Context, d Reader, r HardwareReport, profile Har
 	}
 	if att.Version != Schema || !EqualDevice(att.Device, r.Device) || att.Profile != profile.ID || !CompatibleBundle(profile, att.Bundle) || att.Storage == nil {
 		return p, errors.New("аппаратные входы/storage не совпадают")
+	}
+	if att.Registry == nil && profile.LegacyCompatible() {
+		p.Registry = nil
 	}
 	if e = bindBootFirmware(ctx, d, fresh, profile, att, images, &p); e != nil {
 		return p, e

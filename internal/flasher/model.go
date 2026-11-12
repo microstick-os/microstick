@@ -136,6 +136,7 @@ type Evidence struct {
 	Scope  string `json:"scope"`
 }
 type HardwareProfile struct {
+	authorization      *profileAuthorization
 	BootFirmwarePolicy string              `json:"boot_firmware_policy,omitempty"`
 	LayoutSHA256       string              `json:"layout_sha256,omitempty"`
 	Version            int                 `json:"schema_version"`
@@ -195,10 +196,11 @@ type Operation struct {
 	BeforeSHA256 string `json:"before_sha256"`
 }
 type InstallPlan struct {
-	PayloadSHA256      string        `json:"payload_sha256,omitempty"`
-	PayloadVersion     int           `json:"payload_version,omitempty"`
-	Targets            []Partition   `json:"targets,omitempty"`
-	BootFirmware       *BootFirmware `json:"boot_firmware,omitempty"`
+	Registry           *ProfileReference `json:"registry,omitempty"`
+	PayloadSHA256      string            `json:"payload_sha256,omitempty"`
+	PayloadVersion     int               `json:"payload_version,omitempty"`
+	Targets            []Partition       `json:"targets,omitempty"`
+	BootFirmware       *BootFirmware     `json:"boot_firmware,omitempty"`
 	qualification      *HardwareProfile
 	Version            int            `json:"schema_version"`
 	Device             DeviceInfo     `json:"device"`

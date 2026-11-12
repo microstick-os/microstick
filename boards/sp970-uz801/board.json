@@ -1,0 +1,49 @@
+{
+  "id": "sp970-uz801",
+  "name": "SP970 / UZ801",
+  "revision": 1,
+  "schema_version": 1,
+  "soc": "msm8916",
+  "status": "candidate",
+  "variants": [
+    {
+      "profile": {
+        "bundle_sha256": {},
+        "dtb_sha256": [],
+        "evidence": [
+          {
+            "scope": "Upstream v1 release lists SP970/UZ801 modem support as unavailable.",
+            "url": "docs/hardware-provenance.json#microstick-sp970-uz801-candidate-0"
+          }
+        ],
+        "id": "microstick-sp970-uz801-candidate",
+        "kernel_build": 17,
+        "map_sha256": [],
+        "qualified": false,
+        "recipe": "",
+        "required_areas": [
+          "user",
+          "boot1",
+          "boot2"
+        ],
+        "schema_version": 1,
+        "status": "candidate",
+        "subsystems": {
+          "modem": "upstream release reports not working"
+        }
+      },
+      "requires": {
+        "capabilities": [
+          "kernel-linux17",
+          "own-dsp-v1",
+          "payload-v1",
+          "msm8916-arm64-v1"
+        ],
+        "min_firmware_version": "0.0.0",
+        "min_flasher_version": "1.0.0"
+      },
+      "runtime_bundle": "linux17",
+      "schema_version": 1
+    }
+  ]
+}

@@ -218,6 +218,9 @@ func (f *BootFirmware) Files() [][2]string {
 }
 
 func bindBootFirmware(ctx context.Context, d Reader, r HardwareReport, profile HardwareProfile, att ImageAttestation, images string, p *InstallPlan) error {
+	if p.Registry != nil && (att.Registry == nil || *att.Registry != *p.Registry) {
+		return errors.New("image attestation requires the original board registry")
+	}
 	f, e := InspectBootFirmware(ctx, d, r, profile.BootFirmwarePolicy)
 	if e != nil {
 		return e
@@ -337,6 +340,9 @@ func verifyBootFirmwareInputs(p InstallPlan, images string) error {
 	var att ImageAttestation
 	if e := readJSON(filepath.Join(images, "HardwareInputs.json"), &att); e != nil {
 		return e
+	}
+	if p.Registry != nil && (att.Registry == nil || *att.Registry != *p.Registry) {
+		return errors.New("image registry attestation changed")
 	}
 	if att.Version != Schema || !EqualDevice(att.Device, p.Device) || att.Profile != p.Profile || Hash(att.BootFirmware) != Hash(p.BootFirmware) || p.qualification == nil || !CompatibleBundle(*p.qualification, att.Bundle) {
 		return errors.New("native image attestation changed")

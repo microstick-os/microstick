@@ -26,14 +26,17 @@ type Session struct {
 	Mapper string
 }
 type Config struct {
-	Paths        dev.Paths
-	Open         func(context.Context) (Session, error)
-	Profiles     []flasher.HardwareProfile
-	Simulation   bool
-	Devices      func(context.Context) ([]string, error)
-	SelectDevice func(string)
-	CopyPath     func(context.Context, string) (string, error)
-	OpenFolder   func(context.Context, string) error
+	Registry       *flasher.RegistryClient
+	FlasherVersion string
+	RegistryError  error
+	Paths          dev.Paths
+	Open           func(context.Context) (Session, error)
+	Profiles       []flasher.HardwareProfile
+	Simulation     bool
+	Devices        func(context.Context) ([]string, error)
+	SelectDevice   func(string)
+	CopyPath       func(context.Context, string) (string, error)
+	OpenFolder     func(context.Context, string) error
 }
 type UI struct {
 	body            tview.Primitive
@@ -152,8 +155,14 @@ func (u *UI) menu() {
 			}
 		})
 	}
+	if u.cfg.Registry != nil {
+		list.AddItem(l10n.Text("registry.menu"), "", 0, u.registryStatus)
+	}
 	list.SetBorder(true).SetTitle(l10n.Text("ui.main_menu_choose_an_action"))
 	names := []string{l10n.Text("ui.menu_install"), l10n.Text("ui.menu_update"), l10n.Text("ui.menu_backups"), l10n.Text("ui.menu_rollback"), l10n.Text("ui.menu_inspect")}
+	if u.cfg.Registry != nil {
+		names = append(names, l10n.Text("registry.menu"))
+	}
 	highlight := func(index int) {
 		for i, name := range names {
 			prefix := "  "
@@ -370,6 +379,17 @@ func (u *UI) start(action int) {
 		mode = "update"
 	}
 	u.work(l10n.Text("ui.connecting_and_identifying_the_device"), func(ctx context.Context) error {
+		if u.cfg.RegistryError != nil && action != 2 {
+			return u.cfg.RegistryError
+		}
+		if u.cfg.Registry != nil && action != 2 {
+			_ = u.cfg.Registry.Ensure(ctx)
+			u.cfg.Profiles = u.cfg.Registry.Current().Profiles(u.cfg.FlasherVersion, "", nil)
+			fmt.Fprintln(u.details, l10n.Text("registry.source"), u.cfg.Registry.Current().Source(), u.cfg.Registry.Current().Published())
+			if warning := u.cfg.Registry.Warning(); warning != "" {
+				fmt.Fprintln(u.details, warning)
+			}
+		}
 		s, e := u.open(ctx)
 		if e != nil {
 			return e
@@ -411,6 +431,10 @@ func (u *UI) start(action int) {
 		}
 		if result.Archive != "" {
 			u.support(result, u.menu)
+			return
+		}
+		if result.Report.Resolution.Status != "matched" {
+			u.modal(l10n.Diagnostic(strings.Join(result.Report.Resolution.Reasons, "\n")), []string{l10n.Text("ui.main_menu")}, func(int) { u.menu() })
 			return
 		}
 		if action == 4 {
@@ -553,6 +577,13 @@ func (u *UI) beginInstall(r flasher.HardwareReport, o dev.WizardOptions, pending
 		if e != nil {
 			return e
 		}
+		profile, e := u.profile(r)
+		if e != nil {
+			return e
+		}
+		if c := profile.WithFirmwareVersion(release.Version).Compatibility(); c.Status != "" {
+			return errors.New(c.Message)
+		}
 		if o.Update && pending == nil {
 			installed, e := dev.ProbeInstalledRelease(ctx, u.session.Device, r, u.session.Mapper)
 			if e != nil {
@@ -587,6 +618,9 @@ func (u *UI) beginInstall(r flasher.HardwareReport, o dev.WizardOptions, pending
 }
 func (u *UI) runInstall(op *dev.FlasherOperation, o dev.WizardOptions) {
 	profile, e := u.profile(op.Report)
+	if u.cfg.Registry != nil && op.Registry != nil {
+		profile, e = dev.OperationProfile(op, u.cfg.Registry.Current(), u.cfg.FlasherVersion)
+	}
 	if e != nil {
 		u.failed(e)
 		return

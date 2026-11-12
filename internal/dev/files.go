@@ -16,7 +16,10 @@ import (
 	"strings"
 )
 
-type Paths struct{ Repo, Work, External, Hardware, Output, Host, Target, Artifacts, Distribution string }
+type Paths struct {
+	Repo, Work, External, Hardware, Output, Host, Target, Artifacts, Distribution string
+	BoardProfile                                                                  *flasher.HardwareProfile
+}
 type Entry struct {
 	Path   string `json:"path,omitempty"`
 	Name   string `json:"name,omitempty"`

@@ -13,7 +13,7 @@ func TestResourceCatalogDownloadsAndCachesAfterClone(t *testing.T) {
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { requests++; w.Write([]byte("versioned resource")) }))
 	defer server.Close()
-	path := filepath.Join(p.Repo, "buildroot-external/board/msm8916/resources.json")
+	path := filepath.Join(p.Repo, "boards/resources.json")
 	if e := writeJSON(path, map[string]Resource{"kernel": {URL: server.URL, SHA256: digest([]byte("versioned resource")), File: "runtime.bin"}}, 0600); e != nil {
 		t.Fatal(e)
 	}

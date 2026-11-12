@@ -41,7 +41,7 @@ func BuildQualifiedInstallPlan(ctx context.Context, d Reader, r HardwareReport, 
 		return buildStockPlan(ctx, d, r, profile, images, quickAnswer, backup, mapper...)
 	}
 	r.Resolution = Resolve(r, []HardwareProfile{profile})
-	p := InstallPlan{Version: Schema, Device: r.Device, Profile: profile.ID, Recipe: profile.Recipe, Mode: "install"}
+	p := InstallPlan{Version: Schema, Device: r.Device, Profile: profile.ID, Recipe: profile.Recipe, Mode: "install", Registry: profile.ProfileReference()}
 	if e := requireMatched(r); e != nil {
 		return p, e
 	}
@@ -55,6 +55,9 @@ func BuildQualifiedInstallPlan(ctx context.Context, d Reader, r HardwareReport, 
 	}
 	if att.Version != Schema || !EqualDevice(att.Device, r.Device) || att.Profile != profile.ID || !CompatibleBundle(profile, att.Bundle) {
 		return p, errors.New("подготовленные аппаратные входы отличаются от профиля/экземпляра")
+	}
+	if att.Registry == nil && profile.LegacyCompatible() {
+		p.Registry = nil
 	}
 	if e := bindBootFirmware(ctx, d, r, profile, att, images, &p); e != nil {
 		return p, e
@@ -80,6 +83,7 @@ func BuildQualifiedInstallPlan(ctx context.Context, d Reader, r HardwareReport, 
 }
 
 type ImageAttestation struct {
+	Registry      *ProfileReference `json:"registry,omitempty"`
 	BootFirmware  *BootFirmware     `json:"boot_firmware,omitempty"`
 	Version       int               `json:"schema_version"`
 	Device        DeviceInfo        `json:"device"`

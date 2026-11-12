@@ -17,6 +17,12 @@ func ResumePlan(ctx context.Context, d Reader, p InstallPlan, profile HardwarePr
 	if (p.Recipe == StockRecipe || nativeIdentity(p.Device.Identity)) && !canonicalNativeProfile(profile) {
 		return p, ErrUnsupported
 	}
+	if p.Registry != nil && (profile.ProfileReference() == nil || *p.Registry != *profile.ProfileReference()) {
+		return p, errors.New("saved plan requires its original registry snapshot")
+	}
+	if p.Registry == nil && profile.ProfileReference() != nil && !profile.LegacyCompatible() {
+		return p, errors.New("saved plan lacks registry authorization; restore own backup")
+	}
 	if e := checkDevice(ctx, d, p.Device); e != nil {
 		return p, e
 	}

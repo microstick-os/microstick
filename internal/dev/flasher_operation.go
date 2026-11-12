@@ -14,21 +14,23 @@ import (
 )
 
 type FlasherOperation struct {
-	Measurements          []StageMeasurement     `json:"measurements,omitempty"`
-	InstallationID        string                 `json:"installation_uuid,omitempty"`
-	SSID                  string                 `json:"ssid,omitempty"`
-	ReprepareBootFirmware bool                   `json:"reprepare_boot_firmware,omitempty"`
-	Report                flasher.HardwareReport `json:"report"`
-	Release               FlasherRelease         `json:"release"`
-	Mode                  string                 `json:"mode"`
-	Backup                string                 `json:"backup"`
-	Images                string                 `json:"images"`
-	Record                string                 `json:"record"`
-	Journal               string                 `json:"journal"`
-	Prepared              bool                   `json:"prepared"`
-	Plan                  *flasher.InstallPlan   `json:"plan,omitempty"`
-	Complete              bool                   `json:"complete"`
-	Path                  string                 `json:"-"`
+	Registry              *flasher.ProfileReference `json:"registry,omitempty"`
+	RegistryProof         []byte                    `json:"registry_proof,omitempty"`
+	Measurements          []StageMeasurement        `json:"measurements,omitempty"`
+	InstallationID        string                    `json:"installation_uuid,omitempty"`
+	SSID                  string                    `json:"ssid,omitempty"`
+	ReprepareBootFirmware bool                      `json:"reprepare_boot_firmware,omitempty"`
+	Report                flasher.HardwareReport    `json:"report"`
+	Release               FlasherRelease            `json:"release"`
+	Mode                  string                    `json:"mode"`
+	Backup                string                    `json:"backup"`
+	Images                string                    `json:"images"`
+	Record                string                    `json:"record"`
+	Journal               string                    `json:"journal"`
+	Prepared              bool                      `json:"prepared"`
+	Plan                  *flasher.InstallPlan      `json:"plan,omitempty"`
+	Complete              bool                      `json:"complete"`
+	Path                  string                    `json:"-"`
 }
 
 func FindFlasherOperation(ctx context.Context, p Paths, d flasher.Reader, mode string) (*FlasherOperation, error) {
@@ -77,6 +79,21 @@ func NewFlasherOperation(p Paths, r flasher.HardwareReport, release FlasherRelea
 }
 func SaveFlasherOperation(op *FlasherOperation) error { return writeJSONAtomic(op.Path, op) }
 func RunFlasherOperation(ctx context.Context, p Paths, d flasher.Reader, mapper string, op *FlasherOperation, profile flasher.HardwareProfile, o WizardOptions, progress flasher.Emit) error {
+	profile = profile.WithFirmwareVersion(op.Release.Version)
+	if c := profile.Compatibility(); c.Status != "" {
+		return errors.New(c.Message)
+	}
+	if profile.ProfileReference() != nil {
+		if op.Registry == nil {
+			if op.Prepared && !profile.LegacyCompatible() {
+				return errors.New("prepared operation lacks its original registry; restore own backup")
+			}
+			op.Registry = profile.ProfileReference()
+			op.RegistryProof = profile.RegistryProof()
+		} else if *op.Registry != *profile.ProfileReference() {
+			return errors.New("operation requires its original board profile")
+		}
+	}
 	originalProgress := progress
 	if progress != nil {
 		progress = func(v flasher.Progress) {
@@ -328,4 +345,18 @@ func FlasherBackups(ctx context.Context, p Paths, d flasher.Reader) ([]string, e
 		out = append(out, filepath.Dir(path))
 	}
 	return out, nil
+}
+
+// OperationProfile reopens the original authenticated snapshot for a retry.
+// The current registry supplies revocations, without replacing prepared inputs.
+func OperationProfile(op *FlasherOperation, current *flasher.RegistrySnapshot, version string) (flasher.HardwareProfile, error) {
+	if op.Registry != nil {
+		return current.PinnedProfile(op.RegistryProof, *op.Registry, version, "")
+	}
+	for _, p := range current.Profiles(version, "", nil) {
+		if p.ID == op.Report.Resolution.Profile {
+			return p, nil
+		}
+	}
+	return flasher.HardwareProfile{}, flasher.ErrUnsupported
 }

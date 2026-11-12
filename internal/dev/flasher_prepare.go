@@ -13,7 +13,11 @@ import (
 // PrepareDeviceWizard is the common TUI/offline path. The reader may be native
 // EDL or disposable files; source comparison and exact image preparation are identical.
 func PrepareDeviceWizard(ctx context.Context, p Paths, d flasher.Reader, r flasher.HardwareReport, profile flasher.HardwareProfile, record, images string, o WizardOptions) (flasher.ImageAttestation, error) {
-	att := flasher.ImageAttestation{Version: flasher.Schema, Device: r.Device, Profile: profile.ID, Images: map[string]string{}, Storage: o.Storage}
+	att := flasher.ImageAttestation{Version: flasher.Schema, Device: r.Device, Profile: profile.ID, Images: map[string]string{}, Storage: o.Storage, Registry: profile.ProfileReference()}
+	p.BoardProfile = &profile
+	if c := profile.Compatibility(); c.Status != "" {
+		return att, errors.New(c.Message)
+	}
 	var firmwareErr error
 	att.BootFirmware, firmwareErr = flasher.InspectBootFirmware(ctx, d, r, profile.BootFirmwarePolicy)
 	if firmwareErr != nil {
@@ -24,11 +28,15 @@ func PrepareDeviceWizard(ctx context.Context, p Paths, d flasher.Reader, r flash
 	if e != nil {
 		return att, e
 	}
-	if flasher.HashBytes(dtb) != profile.Bundle["dtb"] {
-		dtb, e = flasher.BuildOwnLED17(dtb)
+	if resource := profile.DTBResource(); resource != "" {
+		dtb, e = boardResourceBytes(p, resource)
 		if e != nil {
 			return att, e
 		}
+	}
+	dtb, e = profile.SelectDTB(dtb)
+	if e != nil {
+		return att, e
 	}
 	if flasher.HashBytes(dtb) != profile.Bundle["dtb"] {
 		return att, errors.New("selected DTB differs from reviewed profile")
@@ -39,7 +47,7 @@ func PrepareDeviceWizard(ctx context.Context, p Paths, d flasher.Reader, r flash
 			o.RootCapacity = part.Range.Length
 		}
 	}
-	o.RequestBinding = flasher.Hash([]any{r.Device, profile.ID, profile.Bundle, o.Storage})
+	o.RequestBinding = flasher.Hash([]any{r.Device, profile.ID, profile.Bundle, o.Storage, profile.ProfileReference()})
 	private := filepath.Join(p.Work, "buildroot-private")
 	if e = os.MkdirAll(private, 0700); e != nil {
 		return att, e

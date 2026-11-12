@@ -37,6 +37,9 @@ func PackageDistribution(p Paths, version, output string) error {
 	if !regexp.MustCompile(`^[0-9]+\.[0-9]+\.[0-9]+$`).MatchString(version) {
 		return errors.New("invalid release version")
 	}
+	if e := flasher.CheckEngineReleaseVersion(version); e != nil {
+		return e
+	}
 	if runtime.GOOS != "linux" || runtime.GOARCH != "amd64" {
 		return errors.New("release packaging requires Linux x86_64")
 	}
@@ -71,7 +74,7 @@ func PackageDistribution(p Paths, version, output string) error {
 		return e
 	}
 	copy := func(src, rel string, mode os.FileMode) error { return copyFile(src, filepath.Join(root, rel), mode) }
-	for _, file := range []string{"README.md", "README.ru.md", "docs/development.md", "docs/flasher.md", "docs/architecture.md", "docs/hardware-provenance.json", "buildroot-external/board/msm8916/resources.json", "buildroot-external/board/msm8916/overlay/usr/share/microstick/default-plugins/README.md", "buildroot-external/board/msm8916/overlay/usr/share/microstick/default-plugins/statistics/README.md", "buildroot-external/board/msm8916/overlay/usr/share/microstick/default-plugins/web/www/favicon.svg"} {
+	for _, file := range []string{"README.md", "README.ru.md", "docs/development.md", "docs/flasher.md", "docs/architecture.md", "docs/hardware-provenance.json", "boards/resources.json", "buildroot-external/board/msm8916/overlay/usr/share/microstick/default-plugins/README.md", "buildroot-external/board/msm8916/overlay/usr/share/microstick/default-plugins/statistics/README.md", "buildroot-external/board/msm8916/overlay/usr/share/microstick/default-plugins/web/www/favicon.svg"} {
 		if e = copy(filepath.Join(p.Repo, file), file, 0644); e != nil {
 			return e
 		}
@@ -80,6 +83,17 @@ func PackageDistribution(p Paths, version, output string) error {
 		file := filepath.Join("docs/images", image)
 		if e = copy(filepath.Join(p.Repo, file), file, 0644); e != nil {
 			return e
+		}
+	}
+	boardFiles, e := files(filepath.Join(p.Repo, "boards"))
+	if e != nil {
+		return e
+	}
+	for _, name := range boardFiles {
+		if filepath.Ext(name) == ".json" {
+			if e = copy(filepath.Join(p.Repo, "boards", name), filepath.Join("boards", name), 0644); e != nil {
+				return e
+			}
 		}
 	}
 	if e = publicHardware(p, filepath.Join(root, "hardware")); e != nil {
@@ -167,6 +181,9 @@ exec "$bundle/libexec/microstick-flasher" --distribution "$bundle" "$@"
 		return e
 	}
 	if e = os.WriteFile(filepath.Join(stage, "SHA256SUMS"), []byte(archive.SHA256+"  "+archive.Path+"\n"), 0644); e != nil {
+		return e
+	}
+	if e = os.RemoveAll(root); e != nil {
 		return e
 	}
 	if e = os.Rename(stage, output); e != nil {
@@ -348,7 +365,7 @@ func archiveDistribution(root, destination string) error {
 }
 
 func packageNotices(p Paths, root string) error {
-	text := "# Component notices\n\nKeep the component license files with this release.\nmicrostick source: https://github.com/microstick-os/microstick.\nThe firmware uses Linux, Buildroot and the packages listed in packages.json.\nHost tools use e2fsprogs, mtools, OpenSSL, QDL and their shared libraries.\nResource URLs and hashes are in buildroot-external/board/msm8916/resources.json.\nThe boot loader is lk2nd 23.1. Its source is https://github.com/msm8916-mainline/lk2nd.\nQDL source is https://github.com/linux-msm/qdl.\n\nThis directory does not assign a new license to microstick or its components.\n"
+	text := "# Component notices\n\nKeep the component license files with this release.\nmicrostick source: https://github.com/microstick-os/microstick.\nThe firmware uses Linux, Buildroot and the packages listed in packages.json.\nHost tools use e2fsprogs, mtools, OpenSSL, QDL and their shared libraries.\nResource URLs and hashes are in boards/resources.json.\nThe boot loader is lk2nd 23.1. Its source is https://github.com/msm8916-mainline/lk2nd.\nQDL source is https://github.com/linux-msm/qdl.\n\nThis directory does not assign a new license to microstick or its components.\n"
 	if e := os.WriteFile(filepath.Join(root, "THIRD_PARTY_NOTICES.md"), []byte(text), 0644); e != nil {
 		return e
 	}
