@@ -1,0 +1,84 @@
+name: Board registry
+on:
+  pull_request:
+    paths: ['boards/**', 'internal/flasher/**', 'internal/dev/boards.go', '.github/workflows/boards.yml']
+  push:
+    branches: [main]
+    paths: ['boards/**', 'internal/flasher/**', 'internal/dev/boards.go', '.github/workflows/boards.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - run: sudo apt-get update && sudo apt-get install -y device-tree-compiler e2fsprogs libext2fs-dev pkg-config
+      - run: go run ./cmd/microstick-dev boards validate
+        env:
+          MICROSTICK_WORKSPACE: ${{ runner.temp }}/microstick
+      - run: go test ./internal/flasher -run '^TestRegistry' -count=1
+  publish:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && github.repository == 'microstick-os/microstick'
+    needs: validate
+    runs-on: ubuntu-latest
+    environment: board-registry
+    permissions:
+      contents: write
+    concurrency:
+      group: board-registry-publish
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@d35c59abb061a4a6fb18e82ac0862c26744d6ab5
+        with:
+          go-version-file: go.mod
+          cache: false
+      - name: Publish authenticated metadata
+        shell: bash
+        env:
+          MICROSTICK_WORKSPACE: ${{ runner.temp }}/microstick
+          BOARD_REGISTRY_SIGNING_SEED: ${{ secrets.BOARD_REGISTRY_SIGNING_SEED }}
+        run: |
+          set -euo pipefail
+          umask 077
+          seed="$RUNNER_TEMP/registry.seed"
+          previous="$RUNNER_TEMP/registry-previous.json"
+          snapshot="$RUNNER_TEMP/registry-next.json"
+          publication="$RUNNER_TEMP/registry-publication"
+          trap 'rm -f "$seed"' EXIT
+          test -n "$BOARD_REGISTRY_SIGNING_SEED"
+          printf '%s\n' "$BOARD_REGISTRY_SIGNING_SEED" > "$seed"
+          go build -o "$RUNNER_TEMP/microstick-dev" ./cmd/microstick-dev
+          git ls-remote origin refs/heads/board-registry > "$RUNNER_TEMP/registry-ref"
+          previous_args=()
+          if test -s "$RUNNER_TEMP/registry-ref"; then
+            git fetch origin board-registry
+            git show origin/board-registry:v1/index.json > "$previous"
+            previous_commit=$("$RUNNER_TEMP/microstick-dev" boards verify --input "$previous")
+            if ! git merge-base --is-ancestor "$previous_commit" "$GITHUB_SHA"; then
+              exit 0
+            fi
+            previous_args=(--previous "$previous")
+            git worktree add --detach "$publication" origin/board-registry
+          else
+            git worktree add --detach "$publication" HEAD
+            git -C "$publication" switch --orphan board-registry
+          fi
+          "$RUNNER_TEMP/microstick-dev" boards publish --commit "$GITHUB_SHA" --key-id registry-primary --key-file "$seed" --output "$snapshot" "${previous_args[@]}"
+          test -f "$snapshot" || exit 0
+          mkdir -p "$publication/v1"
+          cp "$snapshot" "$publication/v1/index.json"
+          git -C "$publication" config user.name microstick-registry
+          git -C "$publication" config user.email registry@users.noreply.github.com
+          git -C "$publication" add v1/index.json
+          git -C "$publication" commit -m "Publish board registry from $GITHUB_SHA"
+          git -C "$publication" push origin HEAD:refs/heads/board-registry

@@ -45,7 +45,7 @@ The helper reads GPT, boot, modem and persist. It does not write storage or rese
 the device. Live extraction with this helper remains unverified.
 
 The helper downloads and checks common inputs from the
-[resource catalog](../buildroot-external/board/msm8916/resources.json).
+[resource catalog](../boards/resources.json).
 It extracts your MPSS, WCNSS and Wi-Fi calibration from stock.
 Do not substitute another device's calibration or the factory MBA.
 
@@ -128,3 +128,9 @@ the repository:
 The command removes private data from the release images. It includes the host
 tools and their libraries. It does not access a device or publish the release.
 
+
+## Board support
+
+`./devtool boards validate` checks the source descriptors and their resource
+references without opening a device. `boards status`, `boards update` and
+`boards import --input /absolute/path/index.json` manage authenticated snapshots.

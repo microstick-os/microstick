@@ -1,0 +1,48 @@
+{
+  "id": "uf02",
+  "name": "UF02",
+  "revision": 1,
+  "schema_version": 1,
+  "soc": "msm8916",
+  "status": "candidate",
+  "variants": [
+    {
+      "profile": {
+        "bundle_sha256": {},
+        "dtb_sha256": [],
+        "evidence": [
+          {
+            "commit": "99d0f10671aa089139e104915608f73c190c4d6c",
+            "scope": "OpenWrt DTS/profile candidate: R72/G71/B73, button23. Different button wiring prevents equivalence with HMUF02.",
+            "url": "docs/hardware-provenance.json#microstick-uf02-candidate-0"
+          }
+        ],
+        "id": "microstick-uf02-candidate",
+        "kernel_build": 17,
+        "map_sha256": [],
+        "qualified": false,
+        "recipe": "",
+        "required_areas": [
+          "user",
+          "boot1",
+          "boot2"
+        ],
+        "schema_version": 1,
+        "status": "candidate",
+        "subsystems": {}
+      },
+      "requires": {
+        "capabilities": [
+          "kernel-linux17",
+          "own-dsp-v1",
+          "payload-v1",
+          "msm8916-arm64-v1"
+        ],
+        "min_firmware_version": "0.0.0",
+        "min_flasher_version": "1.0.0"
+      },
+      "runtime_bundle": "linux17",
+      "schema_version": 1
+    }
+  ]
+}

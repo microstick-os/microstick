@@ -27,6 +27,9 @@ func InspectAndReport(ctx context.Context, d Reader, profiles []HardwareProfile,
 		r.Resolution = Resolution{Status: "conflict", Reasons: []string{"Исследование не завершено; запись запрещена"}}
 		result.Report = r
 	}
+	if r.Resolution.Status == "flasher-update-required" || r.Resolution.Status == "firmware-update-required" || r.Resolution.Status == "blocked" {
+		return result, e
+	}
 	if r.Resolution.Status != "matched" {
 		archive, err := ExportBoardReport(ctx, d, r, reportsDir, progress)
 		result.Archive = archive

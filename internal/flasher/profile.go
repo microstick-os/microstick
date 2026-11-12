@@ -29,6 +29,16 @@ func CompatibleBundle(p HardwareProfile, bundle map[string]string) bool {
 }
 
 func Resolve(report HardwareReport, profiles []HardwareProfile) Resolution {
+	return resolveProfile(report, profiles, true)
+}
+
+// Recognize shares the DTB and layout rules with installation, without requiring
+// physical areas that are absent from a read-only user-area stock image.
+func Recognize(report HardwareReport, profiles []HardwareProfile) Resolution {
+	return resolveProfile(report, profiles, false)
+}
+
+func resolveProfile(report HardwareReport, profiles []HardwareProfile, installation bool) Resolution {
 	result := Resolution{Status: "unsupported", Reasons: []string{}}
 	if len(report.Issues) > 0 {
 		result.Status = "conflict"
@@ -89,7 +99,7 @@ func Resolve(report HardwareReport, profiles []HardwareProfile) Resolution {
 	}
 	matched := []HardwareProfile{}
 	for _, p := range profiles {
-		if p.Version != Schema {
+		if p.Version != Schema && p.authorization == nil {
 			continue
 		}
 		if p.Board != "" {
@@ -127,6 +137,11 @@ func Resolve(report HardwareReport, profiles []HardwareProfile) Resolution {
 	}
 	p := matched[0]
 	result.Profile = p.ID
+	if c := p.Compatibility(); c.Status != "" {
+		result.Status = c.Status
+		result.Reasons = append(result.Reasons, c.Message)
+		return result
+	}
 	if p.Status != "qualified" || !p.Qualified || p.Recipe == "" || p.KernelBuild != 17 {
 		result.Reasons = append(result.Reasons, "Профиль candidate: рецепт установки и комплект #17 не квалифицированы")
 		return result
@@ -137,7 +152,7 @@ func Resolve(report HardwareReport, profiles []HardwareProfile) Resolution {
 		}
 	}
 	for _, area := range p.RequiredAreas {
-		if report.Device.Geometry.Areas[area] == 0 {
+		if installation && report.Device.Geometry.Areas[area] == 0 {
 			result.Reasons = append(result.Reasons, "Нет физической области: "+area)
 		}
 	}

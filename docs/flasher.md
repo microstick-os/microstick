@@ -66,7 +66,7 @@ HYP must declare the AArch64 machine type.
 ELF64 TZ can retain `EM_ARM`; that field alone does not establish its ABI.
 Rollback restores the owner's original raw TZ/HYP.
 
-Inputs: [resource catalog](../buildroot-external/board/msm8916/resources.json).
+Inputs: [resource catalog](../boards/resources.json).
 Protocol references: [Firehose](https://github.com/bkerler/edl/blob/master/edlclient/Library/firehose.py),
 [SEC_BOOT mapping](https://github.com/bkerler/edl/blob/master/edlclient/Config/qualcomm_config.py).
 
@@ -81,3 +81,11 @@ Kernel, DTB, module and firmware hashes remain in the catalog.
 | UF02 | Similar RGB wiring; button GPIO23 differs |
 | UZ801v3 | Upstream software support does not qualify this kernel/module/DSP bundle |
 | SP970/UZ801 | Referenced upstream release reports a nonworking modem |
+
+## Board registry
+
+Board profiles update independently of the application. **Board registry** shows
+the active snapshot and offers refresh or import of a signed offline file.
+An unavailable update retains the verified cache or bundled profiles. A recognized
+board can require a newer flasher or firmware bundle; the installer displays its
+requirements and the [release page](https://github.com/microstick-os/microstick/releases).

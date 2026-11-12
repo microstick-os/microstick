@@ -51,6 +51,10 @@ func run(args []string) error {
 		return errors.New("unexpected arguments")
 	}
 	if *showVersion {
+		if version == "development" {
+			fmt.Println("microstick development (compatibility " + flasher.EngineVersion + ")")
+			return nil
+		}
 		fmt.Println("microstick " + version)
 		return nil
 	}
@@ -67,6 +71,37 @@ func run(args []string) error {
 	profiles, e := flasher.Catalog()
 	if e != nil {
 		return e
+	}
+	client, e := flasher.NewRegistryClient(p.Work)
+	registryError := e
+	clientVersion := version
+	if clientVersion == "development" {
+		clientVersion = flasher.EngineVersion
+	}
+	if client != nil {
+		profiles = client.Current().Profiles(clientVersion, "", nil)
+	} else {
+		profiles = nil
+	}
+	if strings.HasPrefix(*operation, "registry-") {
+		if registryError != nil {
+			return registryError
+		}
+		switch *operation {
+		case "registry-update":
+			if e = client.Refresh(context.Background()); e != nil {
+				return e
+			}
+		case "registry-import":
+			if e = client.ImportFile(*input); e != nil {
+				return e
+			}
+		case "registry-status":
+		default:
+			return errors.New("unknown registry operation")
+		}
+		fmt.Printf("%s sequence=%d published=%s sha256=%s\n", client.Current().Source(), client.Current().Sequence(), client.Current().Published(), client.Current().Digest())
+		return nil
 	}
 	external := func(path string) (string, error) { return dev.ExternalPath(p.Repo, path) }
 	if *operation == "bootstrap" {
@@ -187,7 +222,7 @@ func run(args []string) error {
 		return flasherui.Session{Device: d, Closer: d, Mapper: mapper}, nil
 	}
 	if *operation == "tui" {
-		cfg := flasherui.Config{Paths: p, Open: open, Profiles: profiles, Simulation: *sim}
+		cfg := flasherui.Config{Paths: p, Open: open, Profiles: profiles, Simulation: *sim, Registry: client, FlasherVersion: clientVersion, RegistryError: registryError}
 		if *image == "" && *serial == "" {
 			cfg.SelectDevice = func(path string) { *serial = path }
 			cfg.Devices = func(ctx context.Context) ([]string, error) {
@@ -235,6 +270,13 @@ func run(args []string) error {
 	out, e := external(*output)
 	if e != nil {
 		return e
+	}
+	if *operation == "inspect" {
+		if registryError != nil {
+			return registryError
+		}
+		_ = client.Refresh(context.Background())
+		profiles = client.Current().Profiles(clientVersion, "", nil)
 	}
 	session, e := open(context.Background())
 	if e != nil {

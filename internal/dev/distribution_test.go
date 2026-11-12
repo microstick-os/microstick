@@ -25,6 +25,7 @@ func TestReleaseRootfsRemovesPrivateBytesAndRetainsMetadata(t *testing.T) {
 		"lib/firmware/wlan/prima/WCNSS_qcom_wlan_nv.bin":             "private-marker",
 		"usr/share/microstick/default-plugins/web/default-auth.json": "private-marker",
 		"usr/share/microstick/hardware/build-provenance.json":        "private-marker",
+		"usr/share/microstick/build.json":                            `{"buildroot":"2025.02.19","device_only":"private-marker","device_id":"private-marker"}`,
 		"data/plugins/web/.state/auth.json":                          "private-marker",
 		"etc/dropbear/dropbear_ed25519_host_key":                     "private-marker",
 		"etc/machine-id":                                             "private-marker",
@@ -74,7 +75,7 @@ func TestReleaseRootfsRemovesPrivateBytesAndRetainsMetadata(t *testing.T) {
 			t.Fatal("ownership or mode changed")
 		}
 	}
-	if len(seen) != 4 || seen["usr/bin/public"] != "public-code" || seen["lib/firmware/mba.mbn"] != "common-code" || seen["etc/shadow"] != "root:!:0:0:99999:7:::\n" {
+	if len(seen) != 5 || !strings.Contains(seen["usr/share/microstick/build.json"], "2025.02.19") || seen["usr/bin/public"] != "public-code" || seen["lib/firmware/mba.mbn"] != "common-code" || seen["etc/shadow"] != "root:!:0:0:99999:7:::\n" {
 		t.Fatal("sanitized tree differs", seen)
 	}
 }

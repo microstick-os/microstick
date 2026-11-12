@@ -1,0 +1,48 @@
+{
+  "id": "ufi001c",
+  "name": "UFI001C",
+  "revision": 1,
+  "schema_version": 1,
+  "soc": "msm8916",
+  "status": "candidate",
+  "variants": [
+    {
+      "profile": {
+        "bundle_sha256": {},
+        "dtb_sha256": [],
+        "evidence": [
+          {
+            "commit": "ea3a5c52f8f62f6464b6cdc06b700f0704f1c04a",
+            "scope": "DTS candidate: R22/G21/B20 and button37. Mainline bindings are not #17 qualification.",
+            "url": "docs/hardware-provenance.json#microstick-ufi001c-candidate-0"
+          }
+        ],
+        "id": "microstick-ufi001c-candidate",
+        "kernel_build": 17,
+        "map_sha256": [],
+        "qualified": false,
+        "recipe": "",
+        "required_areas": [
+          "user",
+          "boot1",
+          "boot2"
+        ],
+        "schema_version": 1,
+        "status": "candidate",
+        "subsystems": {}
+      },
+      "requires": {
+        "capabilities": [
+          "kernel-linux17",
+          "own-dsp-v1",
+          "payload-v1",
+          "msm8916-arm64-v1"
+        ],
+        "min_firmware_version": "0.0.0",
+        "min_flasher_version": "1.0.0"
+      },
+      "runtime_bundle": "linux17",
+      "schema_version": 1
+    }
+  ]
+}

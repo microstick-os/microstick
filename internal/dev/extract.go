@@ -4,12 +4,15 @@ import (
 	"archive/zip"
 	"bytes"
 	"compress/gzip"
+	"context"
 	"encoding/binary"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"hash/crc32"
 	"io"
+	"microstick.dev/tools/internal/flasher"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -20,7 +23,6 @@ import (
 
 const qdlRevision = "c72e7d152acd605de19b64ad4a605ae5b58a7cda"
 const programmerSHA = "53f193500c03248f0d671ab57bfe9ca8a42967e97f28403294b4b3f854075aca"
-const factoryBootSHA = "f11ead4c8e315bfba7b9e6e1425acd96d092dacdc84502157f9ee425eab9faf9"
 
 type Partition struct {
 	Name    string `json:"name"`
@@ -361,7 +363,6 @@ func (r qdlReader) Read(start, sectors uint64, dest string) error {
 
 type baseline struct {
 	Files map[string]Entry `json:"files"`
-	DSP   map[string]Entry `json:"dsp_files"`
 	Guard map[string]any   `json:"factory_data_guard"`
 }
 
@@ -605,49 +606,80 @@ func Extract(p Paths, reader rangeReader, output string) error {
 	if e != nil {
 		return e
 	}
-	if stockHash != factoryBootSHA {
-		return errors.New("factory boot/board differs from the reviewed ufi001c profile; do not guess GPIO or substitute another unit's data")
+
+	bootBytes, e := os.ReadFile(filepath.Join(temp, "boot.img"))
+	if e != nil {
+		return e
+	}
+	_, variants, e := flasher.BootDTBs(bootBytes)
+	if e != nil {
+		return e
+	}
+	report := flasher.HardwareReport{Version: flasher.Schema, Device: flasher.DeviceInfo{Identity: flasher.Identity{Kind: "simulator", Hardware: "stock-image"}, Geometry: flasher.Geometry{SectorSize: 512, Areas: map[string]uint64{"user": (gpt.BackupLBA + 1) * 512}}}, Variants: variants}
+	for _, part := range gpt.Partitions {
+		report.GPT.Partitions = append(report.GPT.Partitions, flasher.Partition{Name: part.Name, Range: flasher.Range{Area: "user", Offset: part.Start * 512, Length: part.Sectors * 512}})
+	}
+	registry, e := flasher.NewRegistryClient(p.Work)
+	if e != nil {
+		return e
+	}
+	_ = registry.Ensure(context.Background())
+	profiles := registry.Current().Profiles(flasher.EngineVersion, "", nil)
+	resolution := flasher.Recognize(report, profiles)
+	if resolution.Status != "matched" {
+		return fmt.Errorf("stock hardware: %s: %s", resolution.Status, strings.Join(resolution.Reasons, "; "))
+	}
+	for i := range profiles {
+		if profiles[i].ID == resolution.Profile {
+			p.BoardProfile = &profiles[i]
+			break
+		}
+	}
+	if p.BoardProfile == nil {
+		return errors.New("reviewed board profile unavailable")
 	}
 	var b baseline
-	if e = readJSON(filepath.Join(p.External, "board/msm8916/baseline.json"), &b); e != nil {
+	if e = json.Unmarshal(p.BoardProfile.RuntimeBundle(), &b); e != nil {
 		return e
 	}
 	if e = provisionLinux(p, root, temp, b); e != nil {
 		return e
 	}
-	var dsp DSP
-	dsp.Guard = b.Guard
-	names := make([]string, 0, len(b.DSP))
-	for name := range b.DSP {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	for _, name := range names {
-		path := filepath.Join(root, "firmware/dsp", name)
-		if name != "mba.mbn" {
-			if _, e = command("", nil, "mcopy", "-i", filepath.Join(temp, "modem.img"), "::/image/"+name, path); e != nil {
-				return fmt.Errorf("own factory DSP extraction %s: %w", name, e)
-			}
-		}
-		actual, e := entry(root, "firmware/dsp/"+name)
-		if e != nil {
-			return e
-		}
-		expected := b.DSP[name]
-		if actual.SHA256 != expected.SHA256 || actual.Bytes != expected.Bytes {
-			return fmt.Errorf("own DSP code differs from reviewed profile: %s", name)
-		}
-		actual.Name = name
-		actual.Source = actual.Path
-		actual.Path = ""
-		dsp.Files = append(dsp.Files, actual)
-	}
-	nv, e := imageBytes(filepath.Join(temp, "persist.img"), "WCNSS_qcom_wlan_nv.bin")
+
+	dsp := DSP{Guard: b.Guard}
+	mba, e := entry(root, "firmware/dsp/mba.mbn")
 	if e != nil {
 		return e
 	}
-	if len(nv) != 29816 {
-		return errors.New("missing/unexpected own-device Wi-Fi NV size")
+	if mba.SHA256 != p.BoardProfile.Bundle["mba"] {
+		return errors.New("runtime MBA differs from profile")
+	}
+	mba.Name = "mba.mbn"
+	mba.Source = mba.Path
+	mba.Path = ""
+	dsp.Files = append(dsp.Files, mba)
+	for _, family := range []struct {
+		stem    string
+		machine uint16
+	}{{"modem", 164}, {"wcnss", 40}} {
+		own, e := extractOwnPIL(filepath.Join(temp, "modem.img"), root, family.stem, family.machine)
+		if e != nil {
+			return e
+		}
+		dsp.Files = append(dsp.Files, own...)
+	}
+	guardMatches := false
+	for _, f := range dsp.Files {
+		if f.Name == dsp.Guard["firmware_file"] && f.SHA256 == dsp.Guard["firmware_sha256"] {
+			guardMatches = true
+		}
+	}
+	if !guardMatches {
+		dsp.Guard = nil
+	}
+	nv, e := ownWiFiCalibration(filepath.Join(temp, "persist.img"))
+	if e != nil {
+		return e
 	}
 	nvRel := "firmware/firmware-tree/lib/firmware/wlan/prima/WCNSS_qcom_wlan_nv.bin"
 	nvPath := filepath.Join(root, nvRel)

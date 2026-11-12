@@ -17,7 +17,7 @@ func Main(args []string) error {
 	}
 	args = global.Args()
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" {
-		fmt.Println("microstick developer tools (Go): bootstrap, extract-blobs, post-build, post-image, verify, check-public, prepare-install, package-release\nUse MICROSTICK_WORKSPACE for external build/private data. extract-blobs uses stock EDL or --stock-image; ADB is not required.")
+		fmt.Println("microstick developer tools (Go): bootstrap, extract-blobs, post-build, post-image, verify, check-public, prepare-install, package-release, boards\nUse MICROSTICK_WORKSPACE for external build/private data. extract-blobs uses stock EDL or --stock-image; ADB is not required.")
 		return nil
 	}
 	command := args[0]
@@ -26,6 +26,8 @@ func Main(args []string) error {
 		return e
 	}
 	switch command {
+	case "boards":
+		return BoardsCLI(p, args[1:])
 	case "bootstrap":
 		return Bootstrap(p)
 	case "package-release":

@@ -1,0 +1,12 @@
+{
+  "hmuf02-rgb": {
+    "source_sha256": "6c0fb523f6a220794081c5866e39a84d3604d67d91ec68f376d1b7458766fa34",
+    "result_sha256": "544b2445d014ae08485a520bca0632e0c7941060397a5873fada0c0b6e8286aa",
+    "gpio_changes": [
+      {"node": "/leds/wifi", "controller": 62, "from": 20, "to": 73, "flags": 0},
+      {"node": "/leds/internet", "controller": 62, "from": 21, "to": 71, "flags": 0},
+      {"node": "/leds/os", "controller": 62, "from": 22, "to": 72, "flags": 0}
+    ],
+    "pin_group": "msmgpio-leds"
+  }
+}
