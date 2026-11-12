@@ -55,3 +55,6 @@ microstick – Linux-прошивка для USB-модемов на MSM8916. С
 - [Добавление и управление плагинами](buildroot-external/board/msm8916/overlay/usr/share/microstick/default-plugins/README.md)
 - [Статистика трафика](buildroot-external/board/msm8916/overlay/usr/share/microstick/default-plugins/statistics/README.md)
 - [Для разработчиков: сборка из исходников](docs/development.md)
+
+Собственный код microstick распространяется под [MIT](LICENSE). Исключения и
+условия сторонних компонентов перечислены в [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

@@ -55,3 +55,6 @@ For SSH, use `ssh root@192.168.100.1` when connected to the microstick Wi-Fi hot
 - [Adding and managing plugins](buildroot-external/board/msm8916/overlay/usr/share/microstick/default-plugins/README.md)
 - [Traffic statistics](buildroot-external/board/msm8916/overlay/usr/share/microstick/default-plugins/statistics/README.md)
 - [For developers: build from source](docs/development.md)
+
+Original microstick code uses [MIT](LICENSE), with exceptions and component terms
+listed in [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

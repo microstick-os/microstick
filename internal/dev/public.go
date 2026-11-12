@@ -19,7 +19,7 @@ import (
 )
 
 func PublicFiles(repo string) ([]string, error) {
-	top := map[string]bool{"README.md": true, "README.ru.md": true, ".gitignore": true, "extract-blobs": true, "check-public": true, "prepare-install": true, "devtool": true, "flasher": true, "go.mod": true, "go.sum": true}
+	top := map[string]bool{"README.md": true, "README.ru.md": true, "LICENSE": true, "THIRD_PARTY_NOTICES.md": true, ".gitignore": true, "extract-blobs": true, "check-public": true, "prepare-install": true, "devtool": true, "flasher": true, "go.mod": true, "go.sum": true}
 	dirs := map[string]bool{"buildroot-external": true, "docs": true, "cmd": true, "internal": true, "scripts": true, "boards": true, ".github": true}
 	extensions := map[string]bool{"": true, ".md": true, ".go": true, ".c": true, ".h": true, ".mk": true, ".in": true, ".desc": true, ".patch": true, ".hash": true, ".conf": true, ".fragment": true, ".properties": true, ".service": true, ".sh": true, ".jq": true, ".json": true, ".html": true, ".js": true, ".css": true, ".svg": true, ".rules": true}
 	private := map[string]bool{"credentials.json": true, "sessions.json": true, "default-auth.json": true, "default-imei.json": true, "MANIFEST.json": true, "SHA256SUMS": true, "auth.json": true}
