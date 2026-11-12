@@ -175,6 +175,10 @@ func TestReleaseTemplatePreparesOwnFirmware(t *testing.T) {
 	if e = publicHardware(p, filepath.Join(root, "hardware")); e != nil {
 		t.Fatal(e)
 	}
+	// Release preparation must not depend on preserving empty directories.
+	if e = os.Remove(filepath.Join(root, "hardware/firmware/wifi")); e != nil {
+		t.Fatal(e)
+	}
 	if e = publicImages(p, filepath.Join(root, "images"), "1.0.0"); e != nil {
 		t.Fatal(e)
 	}
