@@ -89,6 +89,9 @@ func stageWizardHardware(p Paths, modem, persist, root string) (Paths, error) {
 		if e != nil {
 			return p, e
 		}
+		if e = os.MkdirAll(filepath.Dir(path), 0700); e != nil {
+			return p, e
+		}
 		if e = os.WriteFile(path, nv, 0600); e != nil {
 			return p, e
 		}
