@@ -23,19 +23,27 @@ type PartitionHash struct {
 	SHA256 string `json:"sha256"`
 }
 type DTSource struct {
-	Source            string     `json:"source"`
-	Offset            uint64     `json:"offset"`
-	OriginalSHA256    string     `json:"original_sha256"`
-	OriginalBytes     uint64     `json:"original_bytes"`
-	ExportSHA256      string     `json:"export_sha256"`
-	ExportBytes       int        `json:"export_bytes"`
-	RemovedProperties int        `json:"removed_properties"`
-	Selectors         [][]uint32 `json:"container_selectors,omitempty"`
+	Source                      string     `json:"source"`
+	Offset                      uint64     `json:"offset"`
+	OriginalSHA256              string     `json:"original_sha256"`
+	OriginalBytes               uint64     `json:"original_bytes"`
+	OriginalMapSHA256           string     `json:"original_map_sha256,omitempty"`
+	OriginalCompatibilitySHA256 string     `json:"original_compatibility_sha256,omitempty"`
+	BoardID                     []uint32   `json:"board_id,omitempty"`
+	InSourceSet                 bool       `json:"in_source_set"`
+	ExportSHA256                string     `json:"export_sha256"`
+	ExportBytes                 int        `json:"export_bytes"`
+	RemovedProperties           int        `json:"removed_properties"`
+	Selectors                   [][]uint32 `json:"container_selectors,omitempty"`
 }
 
 var hardwareProperty = regexp.MustCompile(`^(compatible|model|status|phandle|linux,phandle|device_type|#.*-cells|#address-cells|#size-cells|reg|ranges|dma-ranges|interrupt.*|gpio-controller|gpio-ranges|gpios|gpio|.*-gpios|.*-gpio|clocks|clock-names|clock-frequency|assigned-clocks|assigned-clock-parents|assigned-clock-rates|resets|reset-names|pinctrl-[0-9]+|pinctrl-names|pins|pinmux|function|bias-.*|drive-strength|input-enable|output-high|output-low|.*-supply|regulator-.*|power-domains|memory-region|no-map|reusable|alignment|size|alloc-ranges|label|linux,default-trigger|default-state|linux,code|debounce-interval|wakeup-source|qcom,msm-id|qcom,board-id|qcom,pmic-id|qcom,cont-splash-enabled|qcom,mdss-.*|qcom,pin-func|qcom,num-grp-pins|qcom,pins|qcom,.*-gpio|qcom,.*-gpios|phys|phy-names|dr_mode|maximum-speed|bus-width|non-removable|cap-sd-highspeed|cap-mmc-highspeed|mmc-.*|sd-uhs-.*|vmmc-supply|vqmmc-supply)$`)
 var privateProperty = regexp.MustCompile(`(?i)(serial|imei|imsi|password|passwd|credential|secret|psk|mac-address|macaddr|calib|nvram|nvmem|bootargs|kaslr|rng-seed|random-seed|uuid|unique|token|key|board-data)`)
 var safeDTName = regexp.MustCompile(`^[A-Za-z0-9,._+@#?\-]+$`)
+
+// Downstream hardware bindings that are not covered by the standard DT names.
+// Keep this list explicit: arbitrary vendor properties can contain private data.
+var downstreamHardwareProperty = regexp.MustCompile(`^(qcom,gpio-(err-fatal|err-ready|force-stop|map|parent|proxy-unvote|ramdump-disable|stop-ack|tbl-flags|tbl-label|tbl-num)|qcom,exvbus_gpio|qcom,bus-width|qcom,vdd-voltage-level|qcom,vdd-io-voltage-level|qcom,num-pins|qcom,pin-num|qcom,pin-type-(gp|qdsd|sdc)|qcom,regulator-type|qcom,supply-(name|min-voltage|max-voltage|enable-load|disable-load|pre-on-sleep|post-on-sleep|pre-off-sleep|post-off-sleep)|qcom,proxy-clock-names|active-clock-names|proxy-clock-names|clock-rate|linux,memory-limit|power-domain|iommus|nidnt-gpio-polarity)$`)
 
 func sanitizedDTB(raw []byte) ([]byte, string, int, error) {
 	nodes, e := parseFDT(raw)
@@ -68,7 +76,7 @@ func sanitizedDTB(raw []byte) ([]byte, string, int, error) {
 		keys := sortedPropertyKeys(n.props)
 		for _, key := range keys {
 			// The chosen node carries boot identity/cmdline/initrd state, never wiring.
-			if strings.HasPrefix(n.path, "/chosen") || !hardwareProperty.MatchString(key) || privateProperty.MatchString(key) || !safeDTName.MatchString(key) {
+			if strings.HasPrefix(n.path, "/chosen") || !(hardwareProperty.MatchString(key) || downstreamHardwareProperty.MatchString(key)) || privateProperty.MatchString(key) || !safeDTName.MatchString(key) {
 				removed++
 				continue
 			}
@@ -195,10 +203,20 @@ func ExportBoardReport(ctx context.Context, d Reader, r HardwareReport, dir stri
 	sources := []DTSource{}
 	hashes := []PartitionHash{}
 	notes := []string{}
+	support := BoardSupport{Version: 1, StorageFingerprint: StorageFingerprint(r), Missing: []string{}}
+	observed := []DTVariant{}
+	exported := 0
 	if r.Resolution.Status == "unsupported" && r.Resolution.Profile != "" {
 		notes = append(notes, "A source profile was recognized; its installation inputs or firmware layout still require support. No private firmware/NV payloads are exported.")
 	}
 	safe := r
+	// Installation attestations include private partition GUIDs. Public boot
+	// diagnostics use the separate, allowlisted SUPPORT.json representation.
+	safe.BootFirmware = nil
+	safe.ActiveDTB = nil
+	if strings.HasPrefix(r.InputFailure, "active-dtb-") || strings.HasPrefix(r.InputFailure, "storage-") {
+		support.RequiredInputs = append([]string(nil), r.Resolution.Reasons...)
+	}
 	switch r.InputFailure {
 	case "own-dsp":
 		notes = append(notes, "Preparation failed while validating the attached device's own split DSP image. Board recognition succeeded.")
@@ -209,14 +227,6 @@ func ExportBoardReport(ctx context.Context, d Reader, r HardwareReport, dir stri
 	}
 	safe.Device.Identity = Identity{}
 	safe.AppliedSHA256 = ""
-	safe.Physical = map[string]string{}
-	for _, key := range []string{"boot", "usb", "wifi", "lte", "led"} {
-		value := r.Physical[key]
-		if value != "PASS" && value != "FAIL" {
-			value = "NOT_TESTED"
-		}
-		safe.Physical[key] = value
-	}
 	safe.GPT.DiskGUID = ""
 	safe.GPT.Partitions = append([]Partition(nil), r.GPT.Partitions...)
 	safe.Variants = nil
@@ -230,8 +240,20 @@ func ExportBoardReport(ctx context.Context, d Reader, r HardwareReport, dir stri
 		}
 		data, e := ReadRange(ctx, d, p.Range, 128<<20)
 		if e != nil {
-			return "", e
+			support.Missing = append(support.Missing, name+":read-failed")
+			continue
 		}
+		var variants []DTVariant
+		if p.Name == "boot" {
+			_, variants, e = BootDTBs(data)
+		} else {
+			variants, e = DTBs(data, p.Name)
+		}
+		if e != nil {
+			support.Missing = append(support.Missing, name+":container-parse-failed")
+		}
+		observed = append(observed, variants...)
+		hashes = append(hashes, PartitionHash{name, p.Range, HashBytes(data)})
 		for pos := 0; pos+40 <= len(data); {
 			idx := bytes.Index(data[pos:], []byte{0xd0, 0x0d, 0xfe, 0xed})
 			if idx < 0 {
@@ -248,7 +270,7 @@ func ExportBoardReport(ctx context.Context, d Reader, r HardwareReport, dir stri
 				continue
 			}
 			raw := data[pos : pos+int(n)]
-			b, dts, removed, e := sanitizedDTB(raw)
+			b, _, removed, e := sanitizedDTB(raw)
 			if e != nil {
 				notes = append(notes, fmt.Sprintf("DTB in %s at %d could not be safely exported: omitted", name, pos))
 				pos += int(n)
@@ -259,23 +281,52 @@ func ExportBoardReport(ctx context.Context, d Reader, r HardwareReport, dir stri
 			}
 			stem := fmt.Sprintf("stock/variant-%03d", len(sources))
 			files[stem+".dtb"] = b
-			files[stem+".dts"] = []byte(dts)
 			src := DTSource{Source: name, Offset: uint64(pos), OriginalSHA256: HashBytes(raw), OriginalBytes: n, ExportSHA256: HashBytes(b), ExportBytes: len(b), RemovedProperties: removed}
-			for _, variant := range r.Variants {
+			for _, variant := range variants {
 				if variant.Source == p.Name && variant.Offset == uint64(pos) {
 					src.Selectors = variant.Selectors
+					src.OriginalMapSHA256 = variant.MapSHA256
+					src.OriginalCompatibilitySHA256 = variant.CompatibilitySHA256
+					src.BoardID = variant.BoardID
+					src.InSourceSet = true
 				}
 			}
 			sources = append(sources, src)
 			v, e := ParseDTB(b, name, uint64(pos))
 			if e == nil {
+				v.Selectors = src.Selectors
 				safe.Variants = append(safe.Variants, v)
+				if src.InSourceSet {
+					exported++
+				}
 			} else {
 				notes = append(notes, "Source variant has unresolved bindings/phandles; sanitized dump retained")
 			}
 			pos += int(n)
 		}
 	}
+	if len(r.Issues) > 0 || len(observed) == 0 || exported != len(observed) {
+		support.Missing = append(support.Missing, "dt-source-set-incomplete")
+	}
+	if SourceSetFingerprint(observed) != SourceSetFingerprint(r.Variants) {
+		support.Missing = append(support.Missing, "dt-source-set-changed")
+	}
+	support.DTSourcesComplete = len(support.Missing) == 0
+	if support.DTSourcesComplete {
+		support.SourceSetFingerprint = SourceSetFingerprint(r.Variants)
+		support.CompatibilitySetFingerprint = CompatibilitySetFingerprint(r.Variants)
+		support.AppliedDTBSHA256 = r.AppliedSHA256
+	}
+	if len(r.ActiveDTB) > 0 {
+		clean, _, removed, err := sanitizedDTB(r.ActiveDTB)
+		if err == nil {
+			files["active.dtb"] = clean
+			sources = append(sources, DTSource{Source: "active", OriginalSHA256: HashBytes(r.ActiveDTB), OriginalBytes: uint64(len(r.ActiveDTB)), ExportSHA256: HashBytes(clean), ExportBytes: len(clean), RemovedProperties: removed})
+		} else {
+			support.Missing = append(support.Missing, "active-dtb-export-failed")
+		}
+	}
+	support.BootFirmware = reportBootFirmware(ctx, d, r)
 	// Physical observations are stored separately from installation receipts.
 	safe.Issues = nil
 	if len(r.Issues) > 0 {
@@ -298,8 +349,11 @@ func ExportBoardReport(ctx context.Context, d Reader, r HardwareReport, dir stri
 	if e := putJSON("SOURCES.json", sources); e != nil {
 		return "", e
 	}
+	if e := putJSON("SUPPORT.json", support); e != nil {
+		return "", e
+	}
 	_ = putJSON("NOTES.json", notes)
-	files["README.txt"] = []byte("microstick hardware support report v1\nAttach this archive to an issue at https://github.com/microstick-os/microstick/issues.\nDTB/DTS are sanitized copies of target source variants; original and export hashes are in SOURCES.json. Only documented hardware property names are exported. Unknown properties and private/chosen properties are omitted.\nNo partition payloads, calibration/NV, user files, hardware serials, MAC addresses, GUIDs, passwords or boot arguments are included.\n")
+	files["README.txt"] = []byte("microstick hardware support report v1\nAttach this archive to an issue at https://github.com/microstick-os/microstick/issues.\nDTBs are sanitized copies of target source variants; original and export hashes, maps, board IDs and container selectors are in SOURCES.json. Only documented hardware property names are exported. Unknown properties and private/chosen properties are omitted.\nSUPPORT.json contains original registry fingerprints and numeric boot firmware diagnostics. dt_sources_complete refers only to source-set export integrity. Missing observations are listed with their diagnostic codes. Stored Secure Boot observations never authorize writes.\nNo partition payloads, calibration/NV, user files, hardware serials, MAC addresses, GUIDs, passwords or boot arguments are included.\n")
 	sums := bytes.Buffer{}
 	keys := []string{}
 	for k := range files {

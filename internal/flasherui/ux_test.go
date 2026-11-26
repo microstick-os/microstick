@@ -66,7 +66,7 @@ func TestFormDefaultsInlineErrorAndSmallResize(t *testing.T) {
 func TestBackupBrowsingDoesNotOpenUSB(t *testing.T) {
 	u, s := startUI(t)
 	u.app.QueueUpdateDraw(func() {
-		u.cfg.Open = func(_ context.Context) (Session, error) {
+		u.cfg.Open = func(_ context.Context, _ flasher.Emit) (Session, error) {
 			t.Error("USB opened for backup browsing")
 			return Session{}, errors.New("no USB")
 		}

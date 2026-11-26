@@ -136,11 +136,11 @@ func (d *securityDevice) Write(ctx context.Context, r Range, v io.Reader) error 
 }
 
 func TestBootFirmwareInspectionIsBoundedAndHardwareBased(t *testing.T) {
-	for _, kind := range []string{"legacy", "modern", "mixed", "enabled", "unknown", "unavailable", "missing", "corrupt", "unknown-abi", "unknown-map", "small", "changed-guid", "shifted"} {
+	for _, kind := range []string{"legacy", "modern", "mixed", "enabled", "unknown", "unavailable", "missing", "corrupt", "unknown-abi", "unknown-arm64", "unknown-map", "small", "changed-guid", "shifted"} {
 		t.Run(kind, func(t *testing.T) {
 			f := newFixture(t)
 			tc, hc := 32, 32
-			if kind == "modern" {
+			if kind == "modern" || kind == "unknown-arm64" {
 				tc, hc = 64, 64
 			}
 			if kind == "mixed" {
@@ -163,8 +163,8 @@ func TestBootFirmwareInspectionIsBoundedAndHardwareBased(t *testing.T) {
 				r.GPT.Partitions[len(r.GPT.Partitions)-2].Range.Length = 4096
 			case "changed-guid":
 				r.GPT.Partitions[len(r.GPT.Partitions)-2].GUID = "different-unit-guid"
-			case "corrupt", "unknown-abi", "unknown-map":
-				b := testFirmware(32, true)
+			case "corrupt", "unknown-abi", "unknown-arm64", "unknown-map":
+				b := testFirmware(tc, true)
 				if kind == "corrupt" {
 					b[5] = 2
 				} else if kind == "unknown-map" {
@@ -177,7 +177,7 @@ func TestBootFirmwareInspectionIsBoundedAndHardwareBased(t *testing.T) {
 				}
 			}
 			got, e := InspectBootFirmware(testCtx, d, r, BootFirmwarePolicy)
-			good := kind == "legacy" || kind == "modern" || kind == "mixed" || kind == "changed-guid" || kind == "shifted"
+			good := kind == "legacy" || kind == "modern" || kind == "mixed" || kind == "changed-guid" || kind == "shifted" || kind == "unknown-abi" || kind == "unknown-arm64"
 			if (e == nil) != good {
 				t.Fatalf("got=%+v err=%v", got, e)
 			}
@@ -221,8 +221,8 @@ func nativeTestPlan(t *testing.T, d *EDLReader, image, dir string, payload []byt
 	if e != nil {
 		t.Fatal(e)
 	}
-	profile := HardwareProfile{ID: "native-harness", Qualified: true, Recipe: "preserve-gpt-v1", BootFirmwarePolicy: BootFirmwarePolicy, Bundle: map[string]string{}}
-	p := InstallPlan{Version: Schema, Device: info, Profile: profile.ID, Recipe: profile.Recipe, Mode: "quick", BackupWaived: true, BootFirmware: fw, qualification: &profile}
+	profile := HardwareProfile{ID: "native-harness", Recipe: "preserve-gpt-v1", BootFirmwarePolicy: BootFirmwarePolicy, Bundle: map[string]string{}}
+	p := InstallPlan{Version: Schema, Device: info, Profile: profile.ID, Recipe: profile.Recipe, Mode: "quick", BackupWaived: true, BootFirmware: fw, catalogProfile: &profile}
 	for i, name := range []string{"rootfs.ext4", "boot.img"} {
 		part := gpt.Partitions[i]
 		before, e := HashRange(testCtx, d, part.Range)
@@ -337,7 +337,7 @@ func TestFirmwareCommitRetryAndOwnRestore(t *testing.T) {
 			profile := SimulatorProfile(r)
 			profile.BootFirmwarePolicy = BootFirmwarePolicy
 			r.Resolution = Resolve(r, []HardwareProfile{profile})
-			seed := InstallPlan{Version: Schema, Device: r.Device, Profile: profile.ID, Recipe: "simulator-v1", Mode: "install", BootFirmware: fw, qualification: &profile}
+			seed := InstallPlan{Version: Schema, Device: r.Device, Profile: profile.ID, Recipe: "simulator-v1", Mode: "install", BootFirmware: fw, catalogProfile: &profile}
 			plan, e := buildInstallPlan(testCtx, d, r, f.images, "", backup, seed, f.mapper)
 			if e != nil {
 				t.Fatal(e)
@@ -444,7 +444,7 @@ func TestNativeQualificationCannotComeFromEditedJSON(t *testing.T) {
 	p := SimulatorProfile(f.report)
 	p.Recipe = "preserve-gpt-v1"
 	p.BootFirmwarePolicy = BootFirmwarePolicy
-	if _, e := BuildQualifiedInstallPlan(testCtx, f.d, f.report, p, f.images, "", ""); !errors.Is(e, ErrUnsupported) {
+	if _, e := BuildProfileInstallPlan(testCtx, f.d, f.report, p, f.images, "", ""); !errors.Is(e, ErrUnsupported) {
 		t.Fatal("unreviewed native profile accepted", e)
 	}
 	catalog, e := Catalog()
@@ -452,9 +452,6 @@ func TestNativeQualificationCannotComeFromEditedJSON(t *testing.T) {
 		t.Fatal(e)
 	}
 	for _, profile := range catalog {
-		if !profile.Qualified {
-			continue
-		}
 		if !canonicalNativeProfile(profile) {
 			t.Fatal("catalog profile rejected")
 		}

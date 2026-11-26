@@ -93,7 +93,7 @@ func reviewedSet(r HardwareReport, p HardwareProfile) string {
 	h := SourceSetFingerprint(r.Variants)
 	compatible := CompatibilitySetFingerprint(r.Variants)
 	for _, s := range p.SourceSets {
-		if (s.Fingerprint == h || compatible != "" && s.CompatibilityFingerprint == compatible) && s.Review != "" {
+		if s.Fingerprint == h || compatible != "" && s.CompatibilityFingerprint == compatible {
 			return s.ID
 		}
 	}

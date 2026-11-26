@@ -177,11 +177,8 @@ func newFixture(t *testing.T) fixture {
 	writeTest(t, filepath.Join(images, "rootfs.ext4"), bytes.Repeat([]byte{0x77}, 4096))
 	return fixture{d, report, dir, mapper, images}
 }
-func qualifySimulator(r HardwareReport) HardwareProfile {
-	p := HardwareProfile{Version: Schema, ID: "test-fixture", Status: "qualified", Qualified: true, KernelBuild: 17, Recipe: "simulator-v1", Subsystems: map[string]string{}, Bundle: map[string]string{}, RequiredAreas: []string{"user", "boot1", "boot2"}}
-	for _, s := range requiredSubsystems {
-		p.Subsystems[s] = "PASS"
-	}
+func fixtureProfile(r HardwareReport) HardwareProfile {
+	p := HardwareProfile{Version: Schema, ID: "test-fixture", KernelBuild: 17, Recipe: "simulator-v1", Bundle: map[string]string{}, RequiredAreas: []string{"user", "boot1", "boot2"}}
 	for _, s := range []string{"kernel", "dtb", "modules", "mba", "mpss", "wcnss"} {
 		p.Bundle[s] = strings.Repeat("a", 64)
 	}
@@ -308,7 +305,7 @@ func TestFDTAndProfileResolution(t *testing.T) {
 		})
 	}
 	r := HardwareReport{Version: Schema, Device: DeviceInfo{Identity{"simulator", "x"}, Geometry{512, map[string]uint64{"user": 100000, "boot1": 4096, "boot2": 4096}}}, Variants: []DTVariant{v}}
-	p := qualifySimulator(r)
+	p := fixtureProfile(r)
 	if got := Resolve(r, []HardwareProfile{p}); got.Status != "matched" {
 		t.Fatal(got)
 	}
@@ -317,13 +314,13 @@ func TestFDTAndProfileResolution(t *testing.T) {
 	if got := Resolve(r, []HardwareProfile{p, q}); got.Status != "ambiguous" {
 		t.Fatal(got)
 	}
-	p.Qualified = false
+	p.Recipe = ""
 	if got := Resolve(r, []HardwareProfile{p}); got.Status == "matched" {
 		t.Fatal(got)
 	}
 	changed, _ := ParseDTB(makeDT(t, `different { gpios=<&gpio 72 0>; };`), "boot", 0)
 	r.Variants = append(r.Variants, changed)
-	if got := Resolve(r, []HardwareProfile{qualifySimulator(HardwareReport{Variants: []DTVariant{v}})}); got.Status == "matched" {
+	if got := Resolve(r, []HardwareProfile{fixtureProfile(HardwareReport{Variants: []DTVariant{v}})}); got.Status == "matched" {
 		t.Fatal("same board-id bypassed different wiring")
 	}
 }
@@ -419,7 +416,7 @@ func TestExecutionGatesAndInterruptedWrites(t *testing.T) {
 		t.Run(scenario, func(t *testing.T) {
 			f := newFixture(t)
 			backup := f.backup(t)
-			profile := qualifySimulator(f.report)
+			profile := fixtureProfile(f.report)
 			f.report.Resolution = Resolve(f.report, []HardwareProfile{profile})
 			p, e := BuildInstallPlan(testCtx, f.d, f.report, f.images, "", backup, f.mapper)
 			if e != nil {
@@ -516,7 +513,7 @@ func TestQuickDefaultRefusalAndSpace(t *testing.T) {
 		t.Fatal("partial backup published")
 	}
 	r := f.report
-	r.Resolution = Resolve(r, []HardwareProfile{qualifySimulator(r)})
+	r.Resolution = Resolve(r, []HardwareProfile{fixtureProfile(r)})
 	plan, e := BuildInstallPlan(testCtx, spy, r, f.images, "y", "")
 	if e != nil {
 		t.Fatal(e)
@@ -571,7 +568,7 @@ func TestUnsupportedAutomaticallyExportsSanitizedArchive(t *testing.T) {
 		}
 		found[h.Name] = b
 	}
-	for _, name := range []string{"HardwareReport.json", "SOURCES.json", "PARTITION-HASHES.json", "stock/variant-000.dtb", "stock/variant-000.dts", "SHA256SUMS"} {
+	for _, name := range []string{"HardwareReport.json", "SOURCES.json", "PARTITION-HASHES.json", "stock/variant-000.dtb", "SHA256SUMS"} {
 		if len(found[name]) == 0 {
 			t.Fatal("missing", name)
 		}

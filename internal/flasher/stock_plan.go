@@ -11,11 +11,14 @@ func canonicalStockProfile(p HardwareProfile) bool {
 	return p.Recipe == StockRecipe && canonicalNativeProfile(p)
 }
 func canonicalNativeProfile(p HardwareProfile) bool {
+	if p.automatic != nil {
+		return p.automatic.digest == Hash(p)
+	}
 	a := p.authorization
-	return a != nil && a.snapshot.trusted && a.digest == Hash(p) && p.Qualified && p.Compatibility().Status == ""
+	return a != nil && a.snapshot.trusted && a.digest == Hash(p) && p.Compatibility().Status == ""
 }
 func buildStockPlan(ctx context.Context, d Reader, r HardwareReport, profile HardwareProfile, images, quick, backup string, mapper ...string) (InstallPlan, error) {
-	p := InstallPlan{Version: Schema, Device: r.Device, Profile: profile.ID, Recipe: StockRecipe, Mode: "install", qualification: &profile, Registry: profile.ProfileReference()}
+	p := InstallPlan{Version: Schema, Device: r.Device, Profile: profile.ID, Recipe: StockRecipe, Mode: "install", catalogProfile: &profile, Registry: profile.ProfileReference()}
 	if !canonicalStockProfile(profile) {
 		return p, ErrUnsupported
 	}
@@ -34,9 +37,6 @@ func buildStockPlan(ctx context.Context, d Reader, r HardwareReport, profile Har
 	}
 	if att.Version != Schema || !EqualDevice(att.Device, r.Device) || att.Profile != profile.ID || !CompatibleBundle(profile, att.Bundle) || att.Storage == nil {
 		return p, errors.New("аппаратные входы/storage не совпадают")
-	}
-	if att.Registry == nil && profile.LegacyCompatible() {
-		p.Registry = nil
 	}
 	if e = bindBootFirmware(ctx, d, fresh, profile, att, images, &p); e != nil {
 		return p, e
@@ -117,7 +117,7 @@ func validateStockPlan(p InstallPlan) error {
 	return nil
 }
 func verifyStockExecution(ctx context.Context, d Reader, p InstallPlan, images string) error {
-	if p.qualification == nil || !canonicalStockProfile(*p.qualification) {
+	if p.catalogProfile == nil || !canonicalStockProfile(*p.catalogProfile) {
 		return ErrUnsupported
 	}
 	gpt, e := ReadGPT(ctx, d, p.Device)
@@ -145,5 +145,5 @@ func verifyStockExecution(ctx context.Context, d Reader, p InstallPlan, images s
 	if h != p.InstallationSHA256 {
 		return errors.New("installation receipt изменён перед записью")
 	}
-	return verifyStockImages(images, s, p.qualification.Bundle["dtb"])
+	return verifyStockImages(images, s, p.catalogProfile.Bundle["dtb"])
 }

@@ -83,7 +83,7 @@ func warmNativeRestore(t *testing.T, legacy bool) {
 	}
 	// Test a disposable native transport with a package-private seed. Exported
 	// builders only accept the compiled reviewed catalog, never this fixture.
-	seed := InstallPlan{Version: Schema, Device: r.Device, Profile: profile.ID, Recipe: profile.Recipe, Mode: "install", BootFirmware: att.BootFirmware, InstallationSHA256: att.ReceiptSHA256, qualification: &profile}
+	seed := InstallPlan{Version: Schema, Device: r.Device, Profile: profile.ID, Recipe: profile.Recipe, Mode: "install", BootFirmware: att.BootFirmware, InstallationSHA256: att.ReceiptSHA256, catalogProfile: &profile}
 	plan, e := buildInstallPlan(testCtx, d, r, f.images, "", backup, seed, f.mapper)
 	if e != nil {
 		t.Fatal(e)

@@ -19,7 +19,7 @@ func TestRegistryStatusAndImportDoNotOpenDevice(t *testing.T) {
 	u.app.QueueUpdateDraw(func() {
 		u.cfg.Registry = client
 		u.cfg.FlasherVersion = flasher.EngineVersion
-		u.cfg.Open = func(context.Context) (Session, error) {
+		u.cfg.Open = func(context.Context, flasher.Emit) (Session, error) {
 			t.Error("registry UI opened a device")
 			return Session{}, errors.New("no device")
 		}

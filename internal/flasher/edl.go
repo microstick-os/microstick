@@ -287,7 +287,7 @@ func NewEDLWriter(d *EDLReader, p InstallPlan, approved string) (*EDLWriter, err
 	if e := ValidatePlan(p); e != nil {
 		return nil, e
 	}
-	if p.Mode != "restore" && (p.qualification == nil || p.qualification.ID != p.Profile || !p.qualification.Qualified || p.qualification.Recipe != p.Recipe) {
+	if p.Mode != "restore" && (p.catalogProfile == nil || p.catalogProfile.ID != p.Profile || p.catalogProfile.Recipe != p.Recipe) {
 		return nil, ErrUnsupported
 	}
 	// Keep a private plan copy: shared slice mutation must not alter the grant.

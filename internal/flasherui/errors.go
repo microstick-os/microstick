@@ -10,3 +10,9 @@ func (e *DeviceDiscoveryError) Error() string {
 }
 
 func (e *DeviceDiscoveryError) Unwrap() error { return e.Cause }
+
+// ConnectionStep requests a transport transition without treating it as an
+// installation failure or offering recovery of an unwritten device.
+type ConnectionStep struct{ Message string }
+
+func (e *ConnectionStep) Error() string { return e.Message }

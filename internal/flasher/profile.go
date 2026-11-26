@@ -6,12 +6,16 @@ import (
 	"fmt"
 )
 
-var requiredSubsystems = []string{"gpio", "pinctrl", "interrupts", "clocks", "regulators", "memory", "reserved-memory", "led", "buttons", "sim", "wifi", "usb", "power"}
-
 // Board/kernel compatibility is distinct from the attached unit's stock DSP.
 // MPSS/WCNSS hashes identify device inputs; they need not match the profile.
 func CompatibleBundle(p HardwareProfile, bundle map[string]string) bool {
-	if len(bundle) != len(p.Bundle) {
+	if p.FirmwareSource == "own-device" {
+		for _, name := range []string{"mpss", "wcnss"} {
+			if requireHash(bundle[name]) != nil {
+				return false
+			}
+		}
+	} else if len(bundle) != len(p.Bundle) {
 		return false
 	}
 	for key, expected := range p.Bundle {
@@ -40,6 +44,11 @@ func Recognize(report HardwareReport, profiles []HardwareProfile) Resolution {
 
 func resolveProfile(report HardwareReport, profiles []HardwareProfile, installation bool) Resolution {
 	result := Resolution{Status: "unsupported", Reasons: []string{}}
+	for _, p := range profiles {
+		if p.automaticMatches(report) {
+			return Resolution{Status: "matched", Profile: p.ID, Reasons: []string{}}
+		}
+	}
 	if len(report.Issues) > 0 {
 		result.Status = "conflict"
 		result.Reasons = append(result.Reasons, report.Issues...)
@@ -142,14 +151,9 @@ func resolveProfile(report HardwareReport, profiles []HardwareProfile, installat
 		result.Reasons = append(result.Reasons, c.Message)
 		return result
 	}
-	if p.Status != "qualified" || !p.Qualified || p.Recipe == "" || p.KernelBuild != 17 {
-		result.Reasons = append(result.Reasons, "Профиль candidate: рецепт установки и комплект #17 не квалифицированы")
+	if p.Recipe == "" || p.KernelBuild != 17 {
+		result.Reasons = append(result.Reasons, "Профиль не задаёт рецепт установки и комплект #17")
 		return result
-	}
-	for _, key := range requiredSubsystems {
-		if p.Subsystems[key] != "PASS" {
-			result.Reasons = append(result.Reasons, "Не подтверждена подсистема: "+key)
-		}
 	}
 	for _, area := range p.RequiredAreas {
 		if installation && report.Device.Geometry.Areas[area] == 0 {
@@ -167,10 +171,7 @@ func resolveProfile(report HardwareReport, profiles []HardwareProfile, installat
 	return result
 }
 func Inspect(ctx context.Context, d Reader, profiles []HardwareProfile, emitFn Emit) (HardwareReport, error) {
-	r := HardwareReport{Version: Schema, Physical: map[string]string{}}
-	for _, key := range []string{"boot", "usb", "wifi", "lte", "led"} {
-		r.Physical[key] = "NOT_TESTED"
-	}
+	r := HardwareReport{Version: Schema}
 	var e error
 	r.Device, e = d.Info(ctx)
 	if e != nil {
@@ -251,10 +252,7 @@ func requireMatched(r HardwareReport) error {
 
 // SimulatorProfile describes the file-device boot/rootfs simulation.
 func SimulatorProfile(r HardwareReport) HardwareProfile {
-	p := HardwareProfile{Version: Schema, ID: "file-simulator", Status: "qualified", Qualified: true, Recipe: "simulator-v1", KernelBuild: 17, Subsystems: map[string]string{}, Bundle: map[string]string{}, RequiredAreas: []string{"user", "boot1", "boot2"}}
-	for _, k := range requiredSubsystems {
-		p.Subsystems[k] = "PASS"
-	}
+	p := HardwareProfile{Version: Schema, ID: "file-simulator", Recipe: "simulator-v1", KernelBuild: 17, Bundle: map[string]string{}, RequiredAreas: []string{"user", "boot1", "boot2"}}
 	for _, k := range []string{"kernel", "dtb", "modules", "mba", "mpss", "wcnss"} {
 		p.Bundle[k] = HashBytes([]byte("simulation only: " + k))
 	}

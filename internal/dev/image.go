@@ -434,7 +434,7 @@ func PostImage(p Paths, images string) error {
 	if e = ArchiveSources(p, epoch); e != nil {
 		return e
 	}
-	text := "# microstick private base images\n\nPrivate device-specific base bundle. Do not publish credentials or another unit's calibration.\nThe full public sources/docs are in microstick-source.tar.gz.\n\nBase images contain no default IMEI. Use prepare-install from the source tree, a new\nprivate installation record for each new install, and a separate output directory.\nRetry reuses the record. The separate flasher TUI keeps hardware writes gated on qualified recipes. QEMU/offline checks do not prove hardware boot.\n\nRead-only integrity check: sha256sum -c SHA256SUMS\n"
+	text := "# microstick private base images\n\nPrivate device-specific base bundle. Do not publish credentials or another unit's calibration.\nThe full public sources/docs are in microstick-source.tar.gz.\n\nBase images contain no default IMEI. Use prepare-install from the source tree, a new\nprivate installation record for each new install, and a separate output directory.\nRetry reuses the record. The flasher derives the installation profile from device data or selects a catalog recipe.\n\nRead-only integrity check: sha256sum -c SHA256SUMS\n"
 	if e = os.WriteFile(filepath.Join(p.Artifacts, "README.md"), []byte(text), 0644); e != nil {
 		return e
 	}

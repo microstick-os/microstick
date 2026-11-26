@@ -1,6 +1,7 @@
 package dev
 
 import (
+	"context"
 	"crypto/hmac"
 	"crypto/rand"
 	"crypto/sha1"
@@ -51,6 +52,12 @@ type Credentials struct {
 }
 
 func Fetch(path, url, expected string) error {
+	return FetchContext(context.Background(), path, url, expected)
+}
+func FetchContext(ctx context.Context, path, url, expected string) error {
+	if e := ctx.Err(); e != nil {
+		return e
+	}
 	if _, e := os.Stat(path); e == nil {
 		h, e := hashFile(path)
 		if e != nil {
@@ -65,7 +72,11 @@ func Fetch(path, url, expected string) error {
 		return e
 	}
 	client := http.Client{Timeout: 5 * time.Minute}
-	response, e := client.Get(url)
+	req, e := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if e != nil {
+		return e
+	}
+	response, e := client.Do(req)
 	if e != nil {
 		return e
 	}

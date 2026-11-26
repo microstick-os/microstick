@@ -1,6 +1,7 @@
 package dev
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -14,6 +15,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 )
 
 type Paths struct {
@@ -271,13 +273,20 @@ func finalize(root string, m Manifest) error {
 	return checksumSet(root)
 }
 func command(directory string, input []byte, name string, args ...string) ([]byte, error) {
-	c := exec.Command(name, args...)
+	return commandContext(context.Background(), directory, input, name, args...)
+}
+func commandContext(ctx context.Context, directory string, input []byte, name string, args ...string) ([]byte, error) {
+	c := exec.CommandContext(ctx, name, args...)
+	c.WaitDelay = 100 * time.Millisecond
 	c.Dir = directory
 	if input != nil {
 		c.Stdin = strings.NewReader(string(input))
 	}
 	out, e := c.Output()
 	if e != nil {
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		if x, ok := e.(*exec.ExitError); ok {
 			return nil, fmt.Errorf("%s failed: %s", filepath.Base(name), strings.TrimSpace(string(x.Stderr)))
 		}

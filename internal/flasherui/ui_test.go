@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/rivo/tview"
 	"microstick.dev/tools/internal/dev"
 	"microstick.dev/tools/internal/flasher"
+	"microstick.dev/tools/internal/l10n"
 )
 
 func startUI(t *testing.T) (*UI, tcell.SimulationScreen) {
@@ -261,7 +263,7 @@ func (closer) Close() error { return nil }
 func TestSessionSurvivesCompletedStage(t *testing.T) {
 	u, _ := startUI(t)
 	var lifetime context.Context
-	u.cfg.Open = func(ctx context.Context) (Session, error) {
+	u.cfg.Open = func(ctx context.Context, _ flasher.Emit) (Session, error) {
 		lifetime = ctx
 		return Session{Device: emptyDevice{}, Closer: closer{}}, nil
 	}
@@ -285,7 +287,7 @@ func TestInstallOpensDeviceWithoutAnyModelConfirmation(t *testing.T) {
 	u, s := startUI(t)
 	opened := make(chan struct{}, 1)
 	u.app.QueueUpdateDraw(func() {
-		u.cfg.Open = func(context.Context) (Session, error) {
+		u.cfg.Open = func(context.Context, flasher.Emit) (Session, error) {
 			opened <- struct{}{}
 			return Session{}, errors.New("fixture connection failure")
 		}
@@ -308,8 +310,10 @@ func TestTwoUSBConnectionsUseConnectionPicker(t *testing.T) {
 	u, s := startUI(t)
 	selected := ""
 	u.app.QueueUpdateDraw(func() {
-		u.cfg.Devices = func(context.Context) ([]string, error) { return []string{"@1-2", "@1-3"}, nil }
-		u.cfg.SelectDevice = func(v string) { selected = v }
+		u.cfg.Devices = func(context.Context) ([]dev.USBConnection, error) {
+			return []dev.USBConnection{{Path: "@1-2", Transport: "edl"}, {Path: "@1-3", Transport: "adb"}}, nil
+		}
+		u.cfg.SelectDevice = func(v dev.USBConnection) { selected = v.Path }
 	})
 	press(t, u, tcell.KeyEnter)
 	flushUI(u)
@@ -333,7 +337,7 @@ func TestAutomaticReconnectIsBoundedAndPreservesDeviceBinding(t *testing.T) {
 			u, _ := startUI(t)
 			expected, _ := emptyDevice{}.Info(context.Background())
 			runs, opens := 0, 0
-			u.cfg.Open = func(context.Context) (Session, error) {
+			u.cfg.Open = func(context.Context, flasher.Emit) (Session, error) {
 				opens++
 				device := flasher.Reader(emptyDevice{})
 				if kind == "swapped" {
@@ -390,4 +394,90 @@ func (otherDevice) Info(ctx context.Context) (flasher.DeviceInfo, error) {
 	v, e := emptyDevice{}.Info(ctx)
 	v.Identity.Hardware = "other-unit"
 	return v, e
+}
+
+func TestLiveTransportStepOffersContinueWithoutRollback(t *testing.T) {
+	u, screen := startUI(t)
+	before := strings.Count(screenText(screen), l10n.Text("ui.menu_rollback"))
+	u.app.QueueUpdateDraw(func() { u.failed(&ConnectionStep{Message: l10n.Text("ui.active_tree_switch_edl")}) })
+	flushUI(u)
+	text := screenText(screen)
+	if !strings.Contains(text, "EDL") || strings.Count(text, l10n.Text("ui.menu_rollback")) > before {
+		t.Fatal("transport step treated as a write failure", text)
+	}
+}
+
+func TestDiscoveryCaptureProgressCancelAndRetry(t *testing.T) {
+	u, screen := startUI(t)
+	var searches, opens atomic.Int32
+	capture := make(chan struct{}, 3)
+	selected := ""
+	u.app.QueueUpdateDraw(func() {
+		u.cfg.Devices = func(ctx context.Context) ([]dev.USBConnection, error) {
+			searches.Add(1)
+			return []dev.USBConnection{{Path: "@1-4", Transport: "adb", State: "device"}}, nil
+		}
+		u.cfg.SelectDevice = func(d dev.USBConnection) { selected = d.Path }
+		u.cfg.Open = func(ctx context.Context, emit flasher.Emit) (Session, error) {
+			n := opens.Add(1)
+			emit(flasher.Progress{Stage: "active-dtb", Message: "Чтение дерева: узлов 251, свойств 3001"})
+			capture <- struct{}{}
+			if n == 1 {
+				<-ctx.Done()
+				return Session{}, ctx.Err()
+			}
+			return Session{}, &ConnectionStep{Message: l10n.Text("ui.active_tree_switch_edl")}
+		}
+		u.start(4)
+	})
+	select {
+	case <-capture:
+	case <-time.After(time.Second):
+		t.Fatal("capture did not start")
+	}
+	flushUI(u)
+	if !strings.Contains(screenText(screen), "3001") || strings.Contains(screenText(screen), l10n.Text("ui.looking_for_usb_connections")) {
+		t.Fatal("capture hidden behind discovery")
+	}
+	press(t, u, tcell.KeyCtrlC)
+	deadline := time.Now().Add(time.Second)
+	for !strings.Contains(screenText(screen), l10n.Text("ui.menu_inspect")) && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+		flushUI(u)
+	}
+	u.app.QueueUpdateDraw(func() {
+		if selected != "" {
+			t.Error("selection not cleared after cancel")
+		}
+		u.start(4)
+	})
+	select {
+	case <-capture:
+	case <-time.After(time.Second):
+		t.Fatal("retry did not start")
+	}
+	flushUI(u)
+	if searches.Load() != 2 || opens.Load() != 2 {
+		t.Fatal("retry did not rediscover", searches.Load(), opens.Load())
+	}
+}
+
+func TestNoConnectionsDoesNotOpenOrCapture(t *testing.T) {
+	u, screen := startUI(t)
+	u.app.QueueUpdateDraw(func() {
+		u.cfg.Devices = func(context.Context) ([]dev.USBConnection, error) { return nil, nil }
+		u.cfg.Open = func(context.Context, flasher.Emit) (Session, error) {
+			t.Error("opened absent device")
+			return Session{}, errors.New("absent")
+		}
+		u.start(4)
+	})
+	deadline := time.Now().Add(time.Second)
+	for !strings.Contains(screenText(screen), strings.Split(l10n.Text("ui.no_usb_connections"), ".")[0]) && time.Now().Before(deadline) {
+		time.Sleep(time.Millisecond)
+		flushUI(u)
+	}
+	if !strings.Contains(screenText(screen), strings.Split(l10n.Text("ui.no_usb_connections"), ".")[0]) {
+		t.Fatal("empty discovery did not settle")
+	}
 }

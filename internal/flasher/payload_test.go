@@ -36,7 +36,7 @@ func TestOccupiedPayloadTrafficAndRetry(t *testing.T) {
 	if _, e = CreateBackup(testCtx, f.d, f.report, backup, BackupOptions{Mapper: f.mapper, AllowFull: true}); e != nil {
 		t.Fatal(e)
 	}
-	f.report.Resolution = Resolve(f.report, []HardwareProfile{qualifySimulator(f.report)})
+	f.report.Resolution = Resolve(f.report, []HardwareProfile{fixtureProfile(f.report)})
 	spy := &trafficDevice{Writer: f.d}
 	plan, e := BuildInstallPlan(testCtx, spy, f.report, f.images, "", backup, f.mapper)
 	if e != nil {

@@ -21,7 +21,7 @@ import (
 const Schema = 1
 const Chunk = 16384
 
-var ErrUnsupported = errors.New("нет квалифицированного аппаратного профиля/рецепта")
+var ErrUnsupported = errors.New("нет подходящего профиля платы в каталоге")
 
 // A recognized board can have damaged/missing inputs. Keep its specific cause
 // without mislabelling it as an unknown board or exposing native diagnostics.
@@ -116,17 +116,18 @@ type DTVariant struct {
 	Selectors           [][]uint32 `json:"container_selectors,omitempty"`
 }
 type HardwareReport struct {
-	BootFirmware  *BootFirmware     `json:"boot_firmware,omitempty"`
-	Version       int               `json:"schema_version"`
-	Device        DeviceInfo        `json:"device"`
-	GPT           PartitionTable    `json:"gpt"`
-	Variants      []DTVariant       `json:"dt_variants"`
-	AppliedSHA256 string            `json:"applied_dtb_sha256,omitempty"`
-	Issues        []string          `json:"issues"`
-	Resolution    Resolution        `json:"resolution"`
-	Physical      map[string]string `json:"physical_checks"`
-	Boot          BootProvenance    `json:"boot"`
-	InputFailure  string            `json:"input_failure,omitempty"`
+	ActiveOrigin  string         `json:"active_origin,omitempty"`
+	ActiveDTB     []byte         `json:"active_dtb,omitempty"`
+	BootFirmware  *BootFirmware  `json:"boot_firmware,omitempty"`
+	Version       int            `json:"schema_version"`
+	Device        DeviceInfo     `json:"device"`
+	GPT           PartitionTable `json:"gpt"`
+	Variants      []DTVariant    `json:"dt_variants"`
+	AppliedSHA256 string         `json:"applied_dtb_sha256,omitempty"`
+	Issues        []string       `json:"issues"`
+	Resolution    Resolution     `json:"resolution"`
+	Boot          BootProvenance `json:"boot"`
+	InputFailure  string         `json:"input_failure,omitempty"`
 }
 type Evidence struct {
 	URL    string `json:"url"`
@@ -136,23 +137,20 @@ type Evidence struct {
 	Scope  string `json:"scope"`
 }
 type HardwareProfile struct {
+	automatic          *automaticProfile
 	authorization      *profileAuthorization
 	BootFirmwarePolicy string              `json:"boot_firmware_policy,omitempty"`
 	LayoutSHA256       string              `json:"layout_sha256,omitempty"`
 	Version            int                 `json:"schema_version"`
 	ID                 string              `json:"id"`
-	Status             string              `json:"status"`
 	DTBHashes          []string            `json:"dtb_sha256"`
 	MapHashes          []string            `json:"map_sha256"`
 	RequiredAreas      []string            `json:"required_areas"`
-	Subsystems         map[string]string   `json:"subsystems"`
 	KernelBuild        int                 `json:"kernel_build"`
 	Bundle             map[string]string   `json:"bundle_sha256"`
 	FirmwareSource     string              `json:"firmware_source,omitempty"`
 	Recipe             string              `json:"recipe"`
-	Qualified          bool                `json:"qualified"`
 	Evidence           []Evidence          `json:"evidence"`
-	RequiredFacts      []string            `json:"required_facts,omitempty"`
 	AllowedDifferences []string            `json:"allowed_differences,omitempty"`
 	Board              string              `json:"physical_board,omitempty"`
 	Layout             string              `json:"required_layout,omitempty"`
@@ -201,7 +199,7 @@ type InstallPlan struct {
 	PayloadVersion     int               `json:"payload_version,omitempty"`
 	Targets            []Partition       `json:"targets,omitempty"`
 	BootFirmware       *BootFirmware     `json:"boot_firmware,omitempty"`
-	qualification      *HardwareProfile
+	catalogProfile     *HardwareProfile
 	Version            int            `json:"schema_version"`
 	Device             DeviceInfo     `json:"device"`
 	Profile            string         `json:"profile"`

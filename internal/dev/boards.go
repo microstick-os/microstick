@@ -47,11 +47,11 @@ func BoardsCLI(p Paths, args []string) error {
 		if e != nil {
 			return e
 		}
-		s, e := flasher.VerifyRegistry(raw, keys)
+		s, e := flasher.VerifyRegistryPublication(raw, keys)
 		if e != nil {
 			return e
 		}
-		fmt.Println(s.SourceCommit())
+		fmt.Println(s.Commit)
 		return nil
 	}
 	if action == "keygen" {
@@ -132,14 +132,14 @@ func BoardsCLI(p Paths, args []string) error {
 			if e != nil {
 				return e
 			}
-			old, e := flasher.VerifyRegistry(proof, keys)
+			old, e := flasher.VerifyRegistryPublication(proof, keys)
 			if e != nil {
 				return e
 			}
-			if e = flasher.PrepareRegistryPublication(&payload, old); e != nil {
+			if e = flasher.PrepareRegistryPublication(&payload, old.Sequence); e != nil {
 				return e
 			}
-			if flasher.RegistryContentDigest(payload) == old.ContentDigest() {
+			if flasher.RegistryContentDigest(payload) == old.Content {
 				return nil
 			}
 		}

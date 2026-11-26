@@ -14,6 +14,7 @@ import (
 )
 
 type FlasherOperation struct {
+	Automatic             *flasher.AutomaticInputs  `json:"automatic,omitempty"`
 	Registry              *flasher.ProfileReference `json:"registry,omitempty"`
 	RegistryProof         []byte                    `json:"registry_proof,omitempty"`
 	Measurements          []StageMeasurement        `json:"measurements,omitempty"`
@@ -80,12 +81,15 @@ func NewFlasherOperation(p Paths, r flasher.HardwareReport, release FlasherRelea
 func SaveFlasherOperation(op *FlasherOperation) error { return writeJSONAtomic(op.Path, op) }
 func RunFlasherOperation(ctx context.Context, p Paths, d flasher.Reader, mapper string, op *FlasherOperation, profile flasher.HardwareProfile, o WizardOptions, progress flasher.Emit) error {
 	profile = profile.WithFirmwareVersion(op.Release.Version)
+	if inputs := profile.AutomaticInputs(); inputs != nil {
+		op.Automatic = inputs
+	}
 	if c := profile.Compatibility(); c.Status != "" {
 		return errors.New(c.Message)
 	}
 	if profile.ProfileReference() != nil {
 		if op.Registry == nil {
-			if op.Prepared && !profile.LegacyCompatible() {
+			if op.Prepared {
 				return errors.New("prepared operation lacks its original registry; restore own backup")
 			}
 			op.Registry = profile.ProfileReference()
@@ -270,7 +274,7 @@ func RunFlasherOperation(ctx context.Context, p Paths, d flasher.Reader, mapper 
 		if profile.Recipe == "simulator-v1" {
 			plan, e = flasher.BuildInstallPlan(ctx, d, op.Report, op.Images, "", op.Backup, mapper)
 		} else {
-			plan, e = flasher.BuildQualifiedInstallPlan(ctx, source, op.Report, profile, op.Images, "", op.Backup, mapper)
+			plan, e = flasher.BuildProfileInstallPlan(ctx, source, op.Report, profile, op.Images, "", op.Backup, mapper)
 		}
 		if e != nil {
 			return e
@@ -348,8 +352,14 @@ func FlasherBackups(ctx context.Context, p Paths, d flasher.Reader) ([]string, e
 }
 
 // OperationProfile reopens the original authenticated snapshot for a retry.
-// The current registry supplies revocations, without replacing prepared inputs.
+// The current catalog checks membership without replacing prepared inputs.
 func OperationProfile(op *FlasherOperation, current *flasher.RegistrySnapshot, version string) (flasher.HardwareProfile, error) {
+	if op.Automatic != nil {
+		return flasher.AutomaticProfile(op.Report, *op.Automatic)
+	}
+	if current == nil {
+		return flasher.HardwareProfile{}, errors.New("catalog unavailable for this operation")
+	}
 	if op.Registry != nil {
 		return current.PinnedProfile(op.RegistryProof, *op.Registry, version, "")
 	}

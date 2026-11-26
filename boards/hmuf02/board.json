@@ -4,17 +4,14 @@
   "name": "HMUF02",
   "soc": "msm8916",
   "revision": 1,
-  "status": "supported",
   "variants": [
     {
-      "legacy_profile_sha256": "f487ee356c5b40ed1692a4a95162f2459733227d7ba2576c04b251a003d99d50",
       "schema_version": 1,
       "profile": {
         "boot_firmware_policy": "msm8916-arm64-v1",
         "layout_sha256": "800623ec551c1dcaf452369ef9644029ab39871dded557626920c3b80f66d5ba",
         "schema_version": 1,
         "id": "microstick-hmuf02-system-linux17",
-        "status": "qualified",
         "dtb_sha256": [
           "806e28ced92dec83e1bb3b7f0b7d9a78c194d378432be076da2f0b0ed201f3b8",
           "d93cc24001d935c8c8a180083064e334897324f8588bf7fa90f5b77258462b9c",
@@ -72,21 +69,6 @@
           "boot1",
           "boot2"
         ],
-        "subsystems": {
-          "buttons": "PASS",
-          "clocks": "PASS",
-          "gpio": "PASS",
-          "interrupts": "PASS",
-          "led": "PASS",
-          "memory": "PASS",
-          "pinctrl": "PASS",
-          "power": "PASS",
-          "regulators": "PASS",
-          "reserved-memory": "PASS",
-          "sim": "PASS",
-          "usb": "PASS",
-          "wifi": "PASS"
-        },
         "kernel_build": 17,
         "bundle_sha256": {
           "dtb": "544b2445d014ae08485a520bca0632e0c7941060397a5873fada0c0b6e8286aa",
@@ -98,7 +80,6 @@
         },
         "firmware_source": "own-device",
         "recipe": "hmuf02-stock-gpt-v1",
-        "qualified": true,
         "evidence": [
           {
             "url": "docs/hardware-provenance.json#microstick-hmuf02-system-linux17-0",
@@ -111,13 +92,9 @@
             "scope": "lk2nd23.1; 512KiB inner Android boot"
           }
         ],
-        "required_facts": [
-          "Matching source set and storage layout; own DSP and calibration",
-          "MSM8916 installation recipe with Linux #17 and own-device firmware"
-        ],
         "allowed_differences": [
           "Factory QCDT contains distinct DT variants for telephone hardware",
-          "GPIO37 retained; UF02 GPIO23 excluded; RGB73/71/72 adaptation only",
+          "Reset input GPIO37; RGB73/71/72 adaptation",
           "Original stock or exact installed composite microstick DTB on unchanged stock GPT"
         ],
         "physical_board": "hmuf02",
@@ -152,14 +129,12 @@
       "dtb_transform": "hmuf02-rgb"
     },
     {
-      "legacy_profile_sha256": "cd73351b93b6c36829c1909f5fd7fa14179af85fc3181b37a27ab1a65bc71ba4",
       "schema_version": 1,
       "profile": {
         "boot_firmware_policy": "msm8916-arm64-v1",
         "layout_sha256": "2b02571e07523adb85005d1a1577ed28301f8ce2c892b1f2d753f22b57275718",
         "schema_version": 1,
         "id": "microstick-hmuf02-rootfs-linux17",
-        "status": "qualified",
         "dtb_sha256": [
           "6c0fb523f6a220794081c5866e39a84d3604d67d91ec68f376d1b7458766fa34",
           "544b2445d014ae08485a520bca0632e0c7941060397a5873fada0c0b6e8286aa"
@@ -173,21 +148,6 @@
           "boot1",
           "boot2"
         ],
-        "subsystems": {
-          "buttons": "PASS",
-          "clocks": "PASS",
-          "gpio": "PASS",
-          "interrupts": "PASS",
-          "led": "PASS",
-          "memory": "PASS",
-          "pinctrl": "PASS",
-          "power": "PASS",
-          "regulators": "PASS",
-          "reserved-memory": "PASS",
-          "sim": "PASS",
-          "usb": "PASS",
-          "wifi": "PASS"
-        },
         "kernel_build": 17,
         "bundle_sha256": {
           "dtb": "544b2445d014ae08485a520bca0632e0c7941060397a5873fada0c0b6e8286aa",
@@ -199,7 +159,6 @@
         },
         "firmware_source": "own-device",
         "recipe": "preserve-gpt-v1",
-        "qualified": true,
         "evidence": [
           {
             "url": "docs/hardware-provenance.json#microstick-hmuf02-rootfs-linux17-0",
@@ -212,13 +171,9 @@
             "scope": "lk2nd23.1; 512KiB inner Android boot"
           }
         ],
-        "required_facts": [
-          "Matching source set and storage layout; own DSP and calibration",
-          "MSM8916 installation recipe with Linux #17 and own-device firmware"
-        ],
         "allowed_differences": [
           "Factory QCDT contains distinct DT variants for telephone hardware",
-          "GPIO37 retained; UF02 GPIO23 excluded; RGB73/71/72 adaptation only",
+          "Reset input GPIO37; RGB73/71/72 adaptation",
           "Original stock or exact installed composite microstick DTB on unchanged stock GPT"
         ],
         "physical_board": "hmuf02",

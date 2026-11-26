@@ -15,16 +15,14 @@ import (
 )
 
 type RegistryClient struct {
-	root           string
-	url            string
-	keys           map[string]ed25519.PublicKey
-	http           *http.Client
-	mu             sync.Mutex
-	snapshot       *RegistrySnapshot
-	warning        string
-	automatic      sync.Once
-	automaticError error
-	etag           string
+	root     string
+	url      string
+	keys     map[string]ed25519.PublicKey
+	http     *http.Client
+	mu       sync.Mutex
+	snapshot *RegistrySnapshot
+	warning  string
+	etag     string
 }
 
 func NewRegistryClient(work string) (*RegistryClient, error) {
@@ -49,7 +47,8 @@ func openRegistryClient(root, url string, keys map[string]ed25519.PublicKey, cli
 	if e == nil {
 		s, e = VerifyRegistry(raw, keys)
 		if e != nil {
-			return nil, fmt.Errorf("cached registry invalid: %w", e)
+			c.warning = fmt.Sprintf("Cached catalog could not be read: %v", e)
+			return c, nil
 		}
 		s.source = "cache"
 		c.snapshot = s
@@ -81,6 +80,8 @@ func (c *RegistryClient) Current() *RegistrySnapshot {
 }
 func (c *RegistryClient) Warning() string { c.mu.Lock(); defer c.mu.Unlock(); return c.warning }
 func (c *RegistryClient) Refresh(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	req, e := http.NewRequestWithContext(ctx, http.MethodGet, c.url, nil)
@@ -106,7 +107,7 @@ func (c *RegistryClient) Refresh(ctx context.Context) error {
 		var raw []byte
 		raw, e = io.ReadAll(io.LimitReader(response.Body, RegistryLimit+1))
 		if e == nil {
-			e = c.installLocked(raw)
+			e = c.installLocked(ctx, raw)
 		}
 	}
 	if e != nil {
@@ -120,9 +121,11 @@ func (c *RegistryClient) Refresh(ctx context.Context) error {
 	return nil
 }
 func (c *RegistryClient) Import(raw []byte) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	return c.installLocked(raw)
+	return c.installLocked(ctx, raw)
 }
 
 func (c *RegistryClient) ImportFile(path string) error {
@@ -132,7 +135,7 @@ func (c *RegistryClient) ImportFile(path string) error {
 	}
 	return c.Import(raw)
 }
-func (c *RegistryClient) installLocked(raw []byte) error {
+func (c *RegistryClient) installLocked(ctx context.Context, raw []byte) error {
 	next, e := VerifyRegistry(raw, c.keys)
 	if e != nil {
 		return e
@@ -145,15 +148,28 @@ func (c *RegistryClient) installLocked(raw []byte) error {
 		return e
 	}
 	defer syscall.Close(fd)
-	if e = syscall.Flock(fd, syscall.LOCK_EX); e != nil {
-		return e
+	for {
+		if e = ctx.Err(); e != nil {
+			return e
+		}
+		e = syscall.Flock(fd, syscall.LOCK_EX|syscall.LOCK_NB)
+		if e == nil {
+			break
+		}
+		if e != syscall.EWOULDBLOCK && e != syscall.EAGAIN {
+			return e
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(20 * time.Millisecond):
+		}
 	}
 	defer syscall.Flock(fd, syscall.LOCK_UN)
 	current := c.snapshot
 	if existing, err := readRegistryFile(filepath.Join(c.root, "current.json")); err == nil {
-		current, e = VerifyRegistry(existing, c.keys)
-		if e != nil {
-			return e
+		if cached, err := VerifyRegistry(existing, c.keys); err == nil {
+			current = cached
 		}
 	} else if !os.IsNotExist(err) {
 		return err
@@ -167,28 +183,6 @@ func (c *RegistryClient) installLocked(raw []byte) error {
 		}
 		c.snapshot = current
 		return nil
-	}
-	// Retain revocations even if a later publication accidentally omits a tombstone.
-	for h, reason := range current.payload.Revoked {
-		if next.payload.Revoked[h] != reason {
-			return errors.New("registry drops a profile revocation")
-		}
-	}
-	for _, b := range current.payload.Boards {
-		if b.Status == "blocked" {
-			found := false
-			for _, n := range next.payload.Boards {
-				if n.ID == b.ID {
-					found = true
-					if n.Revision <= b.Revision && n.Status != "blocked" {
-						return errors.New("blocked board requires a newer reviewed revision")
-					}
-				}
-			}
-			if !found {
-				return errors.New("registry drops a blocked board")
-			}
-		}
 	}
 	if e = writeRegistryAtomic(c.root, raw); e != nil {
 		return e
@@ -217,10 +211,4 @@ func writeRegistryAtomic(root string, raw []byte) error {
 		return e
 	}
 	return syncDir(root)
-}
-
-// Ensure checks the registry once per process. Explicit Refresh remains available.
-func (c *RegistryClient) Ensure(ctx context.Context) error {
-	c.automatic.Do(func() { c.automaticError = c.Refresh(ctx) })
-	return c.automaticError
 }

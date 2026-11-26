@@ -93,7 +93,7 @@ func TestOwnDSPBundleKeepsKernelBinding(t *testing.T) {
 		t.Fatal(e)
 	}
 	for _, p := range profiles {
-		if !p.Qualified || p.FirmwareSource != "own-device" {
+		if p.FirmwareSource != "own-device" {
 			continue
 		}
 		b := map[string]string{}

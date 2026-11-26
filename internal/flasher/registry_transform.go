@@ -79,6 +79,15 @@ func TransformDTB(raw []byte, t DTBTransform) ([]byte, error) {
 }
 func fmtGPIO(n uint32) string { return "gpio" + strconv.FormatUint(uint64(n), 10) }
 func (p HardwareProfile) SelectDTB(raw []byte) ([]byte, error) {
+	if p.automatic != nil {
+		if p.automatic.digest != Hash(p) {
+			return nil, errors.New("automatic profile changed")
+		}
+		if HashBytes(raw) != HashBytes(p.automatic.inputs.BaseDTB) {
+			return nil, errors.New("automatic profile runtime DT changed")
+		}
+		return append([]byte(nil), p.automatic.target...), nil
+	}
 	if HashBytes(raw) == p.Bundle["dtb"] {
 		return raw, nil
 	}

@@ -11,7 +11,7 @@ import (
 func TestReviewedBoardSetsDoNotDeclareMapsEquivalent(t *testing.T) {
 	f := newFixture(t)
 	r := f.report
-	p := qualifySimulator(r)
+	p := fixtureProfile(r)
 	p.Board = "hmuf02"
 	p.Layout = "boot-rootfs"
 	// A reviewed alternative may retain findings, but a changed finding/map/selector
@@ -52,7 +52,7 @@ func TestReviewedBoardSetsDoNotDeclareMapsEquivalent(t *testing.T) {
 func TestBoardCompatibilityIgnoresIdentityAndBuildMetadata(t *testing.T) {
 	f := newFixture(t)
 	r := f.report
-	p := qualifySimulator(r)
+	p := fixtureProfile(r)
 	p.Board = "hmuf02"
 	p.Layout = "boot-rootfs"
 	p.SourceSets = []ReviewedSourceSet{{ID: "reviewed", Fingerprint: SourceSetFingerprint(r.Variants), CompatibilityFingerprint: CompatibilitySetFingerprint(r.Variants), Review: "reviewed hardware map"}}
@@ -283,7 +283,6 @@ func TestStockCapabilityCannotBeEnabledByJSONFlag(t *testing.T) {
 	if !canonicalStockProfile(own) {
 		t.Fatal("reviewed profile not accepted")
 	}
-	own.Qualified = true
 	own.Bundle = map[string]string{"dtb": HashBytes(nil)}
 	if canonicalStockProfile(own) {
 		t.Fatal("edited JSON granted stock capability")

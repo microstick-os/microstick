@@ -24,7 +24,7 @@ const RegistryLimit = 8 << 20
 
 var boardIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,95}$`)
 var sourceCommitPattern = regexp.MustCompile(`^[0-9a-f]{40}$`)
-var engineCapabilities = map[string]bool{"kernel-linux17": true, "own-dsp-v1": true, "payload-v1": true, BootFirmwarePolicy: true, StockRecipe: true, "preserve-gpt-v1": true, "dtb-transform-v1": true}
+var engineCapabilities = map[string]bool{"kernel-linux17": true, "own-dsp-v1": true, "payload-v1": true, BootFirmwarePolicy: true, StockRecipe: true, "preserve-gpt-v1": true, "dtb-transform-v1": true, "active-dtb-v1": true}
 
 type ProfileRequirements struct {
 	MinFlasherVersion  string   `json:"min_flasher_version"`
@@ -40,13 +40,12 @@ type BoardResource struct {
 	ResultSHA256 string `json:"result_sha256,omitempty"`
 }
 type BoardVariant struct {
-	LegacyProfileSHA256 string              `json:"legacy_profile_sha256,omitempty"`
-	Version             int                 `json:"schema_version"`
-	Profile             HardwareProfile     `json:"profile"`
-	Requires            ProfileRequirements `json:"requires"`
-	RuntimeBundle       string              `json:"runtime_bundle"`
-	DTBResource         string              `json:"dtb_resource,omitempty"`
-	DTBTransform        string              `json:"dtb_transform,omitempty"`
+	Version       int                 `json:"schema_version"`
+	Profile       HardwareProfile     `json:"profile"`
+	Requires      ProfileRequirements `json:"requires"`
+	RuntimeBundle string              `json:"runtime_bundle"`
+	DTBResource   string              `json:"dtb_resource,omitempty"`
+	DTBTransform  string              `json:"dtb_transform,omitempty"`
 }
 type BoardDescriptor struct {
 	Version  int            `json:"schema_version"`
@@ -54,8 +53,6 @@ type BoardDescriptor struct {
 	Name     string         `json:"name"`
 	SoC      string         `json:"soc"`
 	Revision uint64         `json:"revision"`
-	Status   string         `json:"status"`
-	Reason   string         `json:"reason,omitempty"`
 	Variants []BoardVariant `json:"variants"`
 }
 type GPIOChange struct {
@@ -80,7 +77,6 @@ type RegistryPayload struct {
 	Resources  map[string]BoardResource   `json:"resources"`
 	Bundles    map[string]json.RawMessage `json:"bundles"`
 	Transforms map[string]DTBTransform    `json:"transforms"`
-	Revoked    map[string]string          `json:"revoked_profiles,omitempty"`
 }
 type RegistryEnvelope struct {
 	Payload   []byte `json:"payload"`
@@ -167,6 +163,7 @@ func decodeRegistryJSON(b []byte, v any) error {
 		return e
 	}
 	d := json.NewDecoder(bytes.NewReader(b))
+	d.DisallowUnknownFields()
 	if e := d.Decode(v); e != nil {
 		return e
 	}
@@ -226,20 +223,17 @@ func ReadBoardSources(source fs.FS) (RegistryPayload, error) {
 	return p, validateRegistry(p)
 }
 func validateRegistry(p RegistryPayload) error {
-	if p.Version != 1 || len(p.Boards) == 0 || len(p.Boards) > 1024 {
+	if p.Version != 1 || len(p.Boards) > 1024 {
 		return errors.New("unsupported registry schema or board count")
 	}
 	ids := map[string]bool{}
 	variants := map[string]bool{}
 	for _, b := range p.Boards {
-		if !boardIDPattern.MatchString(b.ID) || ids[b.ID] || b.Name == "" || b.SoC == "" || b.Revision == 0 || len(b.Variants) == 0 || b.Status != "supported" && b.Status != "candidate" && b.Status != "blocked" || b.Status == "blocked" && b.Reason == "" {
+		if !boardIDPattern.MatchString(b.ID) || ids[b.ID] || b.Name == "" || b.SoC == "" || b.Revision == 0 || len(b.Variants) == 0 {
 			return fmt.Errorf("invalid board descriptor: %s", b.ID)
 		}
 		ids[b.ID] = true
 		for _, v := range b.Variants {
-			if v.LegacyProfileSHA256 != "" && requireHash(v.LegacyProfileSHA256) != nil {
-				return errors.New("invalid legacy profile digest")
-			}
 			q := v.Profile
 			if !boardIDPattern.MatchString(q.ID) || variants[q.ID] || v.Version < 1 || b.Version < 1 {
 				return errors.New("invalid or duplicate board variant")
@@ -264,8 +258,18 @@ func validateRegistry(p RegistryPayload) error {
 					return errors.New("DTB transform missing")
 				}
 			}
-			if b.Status == "supported" && (q.Board == "" || q.Layout == "" || len(q.SourceSets) == 0 || !q.Qualified || q.Status != "qualified") {
-				return errors.New("supported board requires reviewed source sets and qualification")
+			if q.Board != b.ID || q.Layout == "" || len(q.SourceSets) == 0 || q.Recipe == "" {
+				return errors.New("board requires source sets, storage layout and installation recipe")
+			}
+			for _, name := range []string{"kernel", "dtb", "modules", "mba", "mpss", "wcnss"} {
+				if requireHash(q.Bundle[name]) != nil {
+					return fmt.Errorf("profile %s lacks %s hash", q.ID, name)
+				}
+			}
+			for _, source := range q.SourceSets {
+				if source.ID == "" || requireHash(source.Fingerprint) != nil || source.CompatibilityFingerprint != "" && requireHash(source.CompatibilityFingerprint) != nil {
+					return errors.New("invalid board source set")
+				}
 			}
 		}
 	}
@@ -280,11 +284,6 @@ func validateRegistry(p RegistryPayload) error {
 	for _, t := range p.Transforms {
 		if requireHash(t.SourceSHA256) != nil || requireHash(t.ResultSHA256) != nil || len(t.GPIOChanges) == 0 || len(t.GPIOChanges) > 32 || t.PinGroup == "" {
 			return errors.New("invalid DTB transformation")
-		}
-	}
-	for hash, reason := range p.Revoked {
-		if requireHash(hash) != nil || reason == "" {
-			return errors.New("invalid profile revocation")
 		}
 	}
 	return nil
@@ -366,6 +365,39 @@ func VerifyRegistry(raw []byte, keys map[string]ed25519.PublicKey) (*RegistrySna
 	}
 	return &RegistrySnapshot{payload: p, proof: append([]byte(nil), raw...), digest: HashBytes(env.Payload), source: "registry", trusted: true, keys: anchors}, nil
 }
+
+// RegistryPublication reads the signed publication header and content identity.
+// Publishing needs no device-profile interpretation of the preceding snapshot.
+type RegistryPublication struct {
+	Sequence uint64
+	Commit   string
+	Content  string
+}
+
+func VerifyRegistryPublication(raw []byte, keys map[string]ed25519.PublicKey) (RegistryPublication, error) {
+	var env RegistryEnvelope
+	if e := decodeRegistryJSON(raw, &env); e != nil {
+		return RegistryPublication{}, e
+	}
+	key := keys[env.KeyID]
+	if len(key) != ed25519.PublicKeySize || !ed25519.Verify(key, env.Payload, env.Signature) {
+		return RegistryPublication{}, errors.New("board registry signature is invalid or key is unknown")
+	}
+	var fields map[string]json.RawMessage
+	if e := decodeRegistryJSON(env.Payload, &fields); e != nil {
+		return RegistryPublication{}, e
+	}
+	var info RegistryPublication
+	var published string
+	if json.Unmarshal(fields["sequence"], &info.Sequence) != nil || json.Unmarshal(fields["source_commit"], &info.Commit) != nil || json.Unmarshal(fields["published_at"], &published) != nil || info.Sequence == 0 || !sourceCommitPattern.MatchString(info.Commit) {
+		return info, errors.New("invalid registry publication")
+	}
+	if _, e := time.Parse(time.RFC3339, published); e != nil {
+		return info, e
+	}
+	info.Content = registryContent(env.Payload)
+	return info, nil
+}
 func (s *RegistrySnapshot) Digest() string    { return s.digest }
 func (s *RegistrySnapshot) Sequence() uint64  { return s.payload.Sequence }
 func (s *RegistrySnapshot) Published() string { return s.payload.Published }
@@ -384,7 +416,7 @@ func (s *RegistrySnapshot) Profiles(flasherVersion, firmwareVersion string, curr
 			var p HardwareProfile
 			raw, _ := json.Marshal(v.Profile)
 			_ = json.Unmarshal(raw, &p)
-			ref := ProfileReference{SnapshotSHA256: s.digest, ProfileSHA256: Hash([]any{b.ID, b.Name, b.SoC, b.Version, b.Revision, b.Status, b.Reason, v}), BoardID: b.ID, VariantID: p.ID, Sequence: s.payload.Sequence}
+			ref := ProfileReference{SnapshotSHA256: s.digest, ProfileSHA256: Hash([]any{b.ID, b.Name, b.SoC, b.Version, b.Revision, v}), BoardID: b.ID, VariantID: p.ID, Sequence: s.payload.Sequence}
 			p.authorization = &profileAuthorization{snapshot: s, digest: Hash(p), board: b, variant: v, reference: ref, flasherVersion: flasherVersion, firmwareVersion: firmwareVersion, current: current}
 			out = append(out, p)
 		}
@@ -418,6 +450,9 @@ func (p HardwareProfile) RuntimeBundle() []byte {
 	return append([]byte(nil), p.authorization.snapshot.payload.Bundles[p.authorization.variant.RuntimeBundle]...)
 }
 func (p HardwareProfile) DisplayName() string {
+	if p.automatic != nil {
+		return "MSM8916"
+	}
 	if p.authorization == nil {
 		return p.ID
 	}
@@ -428,14 +463,8 @@ func (p HardwareProfile) Compatibility() CompatibilityResult {
 	if a == nil {
 		return CompatibilityResult{}
 	}
-	if a.board.Status == "blocked" {
-		return CompatibilityResult{"blocked", a.board.Reason}
-	}
-	if reason := a.current.blocked(a.reference); reason != "" {
-		return CompatibilityResult{"blocked", reason}
-	}
-	if a.board.Status != "supported" {
-		return CompatibilityResult{"candidate", "Board support is under review"}
+	if reason := a.current.profileMissing(a.reference); reason != "" {
+		return CompatibilityResult{"unsupported", reason}
 	}
 	update := func(message string) CompatibilityResult {
 		return CompatibilityResult{"flasher-update-required", message + ". " + ReleasesURL}
@@ -463,19 +492,19 @@ func (p HardwareProfile) Compatibility() CompatibilityResult {
 	}
 	return CompatibilityResult{}
 }
-func (s *RegistrySnapshot) blocked(ref ProfileReference) string {
-	if s == nil {
-		return "registry unavailable"
-	}
-	if r := s.payload.Revoked[ref.ProfileSHA256]; r != "" {
-		return r
-	}
-	for _, b := range s.payload.Boards {
-		if b.ID == ref.BoardID && b.Status == "blocked" {
-			return b.Reason
+func (s *RegistrySnapshot) profileMissing(ref ProfileReference) string {
+	if s != nil {
+		for _, b := range s.payload.Boards {
+			if b.ID == ref.BoardID {
+				for _, v := range b.Variants {
+					if v.Profile.ID == ref.VariantID {
+						return ""
+					}
+				}
+			}
 		}
 	}
-	return ""
+	return "Board profile is absent from the catalog"
 }
 func (s *RegistrySnapshot) PinnedProfile(raw []byte, ref ProfileReference, flasherVersion, firmwareVersion string) (HardwareProfile, error) {
 	original, e := BuiltinRegistry()
@@ -509,61 +538,28 @@ func (s *RegistrySnapshot) PinnedProfile(raw []byte, ref ProfileReference, flash
 	return HardwareProfile{}, errors.New("pinned board profile missing; restore own backup")
 }
 
-// PrepareRegistryPublication preserves tombstones and rejects silent withdrawal
-// of supported boards. Source revisions make a reviewed unblock explicit.
-func PrepareRegistryPublication(next *RegistryPayload, old *RegistrySnapshot) error {
-	if old == nil || !old.trusted {
-		return errors.New("previous registry is not trusted")
+// PrepareRegistryPublication assigns a revision to the current catalog contents.
+func PrepareRegistryPublication(next *RegistryPayload, previousSequence uint64) error {
+	if previousSequence == 0 || previousSequence == ^uint64(0) {
+		return errors.New("invalid previous registry sequence")
 	}
-	next.Sequence = old.Sequence() + 1
-	if next.Revoked == nil {
-		next.Revoked = map[string]string{}
-	}
-	for h, r := range old.payload.Revoked {
-		next.Revoked[h] = r
-	}
-	for _, b := range old.payload.Boards {
-		found := false
-		for _, n := range next.Boards {
-			if n.ID != b.ID {
-				continue
-			}
-			found = true
-			if n.Revision < b.Revision {
-				return errors.New("board revision cannot decrease")
-			}
-			if b.Status == "blocked" && n.Status != "blocked" && n.Revision <= b.Revision {
-				return errors.New("unblocking requires a newer board revision")
-			}
-			if n.Status == "blocked" {
-				for _, v := range b.Variants {
-					h := Hash([]any{b.ID, b.Name, b.SoC, b.Version, b.Revision, b.Status, b.Reason, v})
-					next.Revoked[h] = n.Reason
-				}
-			}
-		}
-		if !found && (b.Status == "supported" || b.Status == "blocked") {
-			return errors.New("retain supported/blocked boards with an explicit blocked status")
-		}
-	}
+	next.Sequence = previousSequence + 1
 	return validateRegistry(*next)
 }
 func (s *RegistrySnapshot) SourceCommit() string { return s.payload.Commit }
 
 func (s *RegistrySnapshot) ContentDigest() string {
-	p := s.payload
-	p.Sequence = 0
-	p.Commit = ""
-	p.Published = ""
-	return Hash(p)
+	return RegistryContentDigest(s.payload)
 }
 func RegistryContentDigest(p RegistryPayload) string {
-	p.Sequence = 0
-	p.Commit = ""
-	p.Published = ""
-	return Hash(p)
+	raw, _ := json.Marshal(p)
+	return registryContent(raw)
 }
-
-func (p HardwareProfile) LegacyCompatible() bool {
-	return p.authorization != nil && p.authorization.variant.LegacyProfileSHA256 == Hash(p) && canonicalNativeProfile(p)
+func registryContent(raw []byte) string {
+	var value map[string]any
+	_ = json.Unmarshal(raw, &value)
+	delete(value, "sequence")
+	delete(value, "source_commit")
+	delete(value, "published_at")
+	return Hash(value)
 }

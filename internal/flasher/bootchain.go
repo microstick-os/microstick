@@ -124,6 +124,7 @@ func InspectBootFirmware(ctx context.Context, d Reader, r HardwareReport, policy
 	}
 	classes := []*int{&f.TZClass, &f.HYPClass}
 	hashes := []*string{&f.TZSHA256, &f.HYPSHA256}
+	retainedTZ := false
 	for i, p := range []Partition{f.TZ, f.HYP} {
 		if p.Name == "" || p.Range.Area != "user" || !p.Range.Valid(r.Device.Geometry) || p.Range.Length > 8<<20 {
 			return nil, &UnsupportedInput{Code: "boot-firmware-mapping", Message: "Нет проверенных разделов TZ/HYP для ARM64"}
@@ -140,12 +141,11 @@ func InspectBootFirmware(ctx context.Context, d Reader, r HardwareReport, policy
 			return nil, &UnsupportedInput{Code: "boot-firmware-abi", Message: "Неизвестная карта загрузочной firmware; требуется проверка совместимости"}
 		}
 		*hashes[i] = HashBytes(b)
-		// ELF class alone is not a compatibility promise for unknown firmware.
-		if i == 0 && !(f.TZClass == 32 && bytes.Contains(b, []byte("TZ.BF.2.2")) || f.TZClass == 64 && bytes.Contains(b, []byte("TZ.BF.3.0-"))) {
-			return nil, &UnsupportedInput{Code: "boot-firmware-abi", Message: "Неизвестный ABI TrustZone; требуется проверка совместимости"}
+		if i == 0 {
+			retainedTZ = *classes[i] == 64 && bytes.Contains(b, []byte("TZ.BF.3.0-"))
 		}
 	}
-	f.Upgrade = f.TZClass != 64 || f.HYPClass != 64
+	f.Upgrade = !retainedTZ || f.HYPClass != 64
 	if f.Upgrade {
 		if f.TZ.Range.Length < BootTZBytes || f.HYP.Range.Length < BootHYPBytes {
 			return nil, &UnsupportedInput{Code: "boot-firmware-capacity", Message: "ARM64 firmware не помещается в исходную разметку"}
@@ -202,7 +202,7 @@ func readSecureBoot(ctx context.Context, d Reader) (string, error) {
 }
 
 func (f *BootFirmware) Validate(g Geometry) error {
-	if f == nil || f.Version != 1 || f.Policy != BootFirmwarePolicy || f.TZ.Name != "tz" || f.HYP.Name != "hyp" || f.TZ.GUID == "" || f.HYP.GUID == "" || f.TZClass != 32 && f.TZClass != 64 || f.HYPClass != 32 && f.HYPClass != 64 || f.Upgrade != (f.TZClass != 64 || f.HYPClass != 64) || f.Upgrade && f.Security != "disabled" || !f.Upgrade && f.Security != "unchanged" || requireHash(f.TZSHA256) != nil || requireHash(f.HYPSHA256) != nil {
+	if f == nil || f.Version != 1 || f.Policy != BootFirmwarePolicy || f.TZ.Name != "tz" || f.HYP.Name != "hyp" || f.TZ.GUID == "" || f.HYP.GUID == "" || f.TZClass != 32 && f.TZClass != 64 || f.HYPClass != 32 && f.HYPClass != 64 || !f.Upgrade && (f.TZClass != 64 || f.HYPClass != 64) || f.Upgrade && f.Security != "disabled" || !f.Upgrade && f.Security != "unchanged" || requireHash(f.TZSHA256) != nil || requireHash(f.HYPSHA256) != nil {
 		return errors.New("неполный контракт ARM64 boot firmware")
 	}
 	if f.TZ.Range.Area != "user" || f.HYP.Range.Area != "user" || f.TZ.Range.Length > 8<<20 || f.HYP.Range.Length > 8<<20 || f.Upgrade && (f.TZ.Range.Length < BootTZBytes || f.HYP.Range.Length < BootHYPBytes) {
@@ -297,7 +297,7 @@ func verifyBootFirmwareExecution(ctx context.Context, d Reader, p InstallPlan) e
 		return nil
 	}
 	f := p.BootFirmware
-	if p.qualification == nil || p.qualification.BootFirmwarePolicy != f.Policy {
+	if p.catalogProfile == nil || p.catalogProfile.BootFirmwarePolicy != f.Policy {
 		return ErrUnsupported
 	}
 	gpt, e := ReadGPT(ctx, d, p.Device)
@@ -344,7 +344,7 @@ func verifyBootFirmwareInputs(p InstallPlan, images string) error {
 	if p.Registry != nil && (att.Registry == nil || *att.Registry != *p.Registry) {
 		return errors.New("image registry attestation changed")
 	}
-	if att.Version != Schema || !EqualDevice(att.Device, p.Device) || att.Profile != p.Profile || Hash(att.BootFirmware) != Hash(p.BootFirmware) || p.qualification == nil || !CompatibleBundle(*p.qualification, att.Bundle) {
+	if att.Version != Schema || !EqualDevice(att.Device, p.Device) || att.Profile != p.Profile || Hash(att.BootFirmware) != Hash(p.BootFirmware) || p.catalogProfile == nil || !CompatibleBundle(*p.catalogProfile, att.Bundle) {
 		return errors.New("native image attestation changed")
 	}
 	h, e := HashFile(filepath.Join(images, "Preparation.json"))

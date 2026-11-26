@@ -2,10 +2,12 @@ package dev
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
 
 // OpenWorkspace and ExternalPath share the developer tools' symlink-aware
@@ -19,6 +21,18 @@ func ExternalPath(repo, path string) (string, error) {
 }
 func VerifyImages(root string) error { _, e := verifyManifest(root); return e }
 func FlasherBootstrap(p Paths, edl bool) (mapper, bridge, programmer string, err error) {
+	return FlasherBootstrapContext(context.Background(), p, edl)
+}
+func FlasherBootstrapContext(ctx context.Context, p Paths, edl bool) (mapper, bridge, programmer string, err error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+	if err = ctx.Err(); err != nil {
+		return
+	}
+	command := func(directory string, input []byte, name string, args ...string) ([]byte, error) {
+		return commandContext(ctx, directory, input, name, args...)
+	}
+	fetch := func(path, url, hash string) error { return FetchContext(ctx, path, url, hash) }
 	if p.Distribution != "" {
 		mapper = filepath.Join(p.Distribution, "tools/bin/extmap")
 		if edl {
@@ -46,7 +60,7 @@ func FlasherBootstrap(p Paths, edl bool) (mapper, bridge, programmer string, err
 		return
 	}
 	archive := filepath.Join(p.Work, "buildroot-downloads/qdl-"+qdlRevision+".tar.gz")
-	if err = Fetch(archive, "https://codeload.github.com/linux-msm/qdl/tar.gz/"+qdlRevision, "e0110b6f667cc937baa0a333e8fb0187d010db7dd78ba68092223d8c4397c21d"); err != nil {
+	if err = fetch(archive, "https://codeload.github.com/linux-msm/qdl/tar.gz/"+qdlRevision, "e0110b6f667cc937baa0a333e8fb0187d010db7dd78ba68092223d8c4397c21d"); err != nil {
 		return
 	}
 	stage, e := os.MkdirTemp(dir, ".qdl-build-")
@@ -78,7 +92,7 @@ func FlasherBootstrap(p Paths, edl bool) (mapper, bridge, programmer string, err
 		return
 	}
 	programmer = filepath.Join(p.Work, "buildroot-downloads/prog_emmc_firehose_8916.mbn")
-	err = Fetch(programmer, "https://raw.githubusercontent.com/bkerler/Loaders/6c416255056a178f54ccd7ee9b67d04a5bdfa8e6/qualcomm/factory/msm8916/007050e100000000_394a2e47cf830150_fhprg_peek.bin", programmerSHA)
+	err = fetch(programmer, "https://raw.githubusercontent.com/bkerler/Loaders/6c416255056a178f54ccd7ee9b67d04a5bdfa8e6/qualcomm/factory/msm8916/007050e100000000_394a2e47cf830150_fhprg_peek.bin", programmerSHA)
 	return
 }
 

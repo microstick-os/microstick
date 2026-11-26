@@ -78,8 +78,8 @@ jobs:
           test -f "$snapshot" || exit 0
           mkdir -p "$publication/v1"
           cp "$snapshot" "$publication/v1/index.json"
-          git -C "$publication" config user.name microstick-registry
-          git -C "$publication" config user.email registry@users.noreply.github.com
+          git -C "$publication" config user.name "github-actions[bot]"
+          git -C "$publication" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git -C "$publication" add v1/index.json
           git -C "$publication" commit -m "Publish board registry from $GITHUB_SHA"
           git -C "$publication" push origin HEAD:refs/heads/board-registry

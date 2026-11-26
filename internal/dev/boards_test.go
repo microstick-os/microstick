@@ -102,24 +102,6 @@ func TestOperationProfilePreservesBootstrapProof(t *testing.T) {
 		t.Fatal("damaged proof accepted")
 	}
 }
-func TestLegacyPreparedOperationUsesExactInitialProfile(t *testing.T) {
-	s, e := flasher.BuiltinRegistry()
-	if e != nil {
-		t.Fatal(e)
-	}
-	for _, p := range s.Profiles(flasher.EngineVersion, "", nil) {
-		if !p.Qualified {
-			continue
-		}
-		if !p.LegacyCompatible() {
-			t.Fatal("initial profile migration missing", p.ID)
-		}
-		p.Bundle["kernel"] = strings.Repeat("b", 64)
-		if p.LegacyCompatible() {
-			t.Fatal("modified legacy profile accepted")
-		}
-	}
-}
 func TestFirmwareMinimumStopsBeforeBackupOrDeviceRead(t *testing.T) {
 	p := testPaths(t)
 	payload, e := flasher.ReadBoardSources(os.DirFS(filepath.Join(p.Repo, "boards")))

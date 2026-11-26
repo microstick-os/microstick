@@ -77,7 +77,7 @@ func TestBackupWindowsUseViewportAndExplainScope(t *testing.T) {
 		t.Fatal(items, e)
 	}
 	u.app.QueueUpdateDraw(func() {
-		u.cfg.Open = func(context.Context) (Session, error) {
+		u.cfg.Open = func(context.Context, flasher.Emit) (Session, error) {
 			t.Error("local browsing opened USB")
 			return Session{}, errors.New("no USB")
 		}
@@ -159,7 +159,7 @@ func TestBackupManagerDisplaysDeviceLabelsWithoutUSB(t *testing.T) {
 		}
 	}
 	u.app.QueueUpdateDraw(func() {
-		u.cfg.Open = func(context.Context) (Session, error) {
+		u.cfg.Open = func(context.Context, flasher.Emit) (Session, error) {
 			t.Error("device labels opened USB")
 			return Session{}, errors.New("no USB")
 		}
@@ -206,7 +206,7 @@ func TestStableAggregateProgressAndCoalescedRangeEvents(t *testing.T) {
 	var draws atomic.Int64
 	u.app.QueueUpdateDraw(func() {
 		u.app.SetAfterDrawFunc(func(tcell.Screen) { draws.Add(1) })
-		u.cfg.SelectDevice = func(string) { close(finished) }
+		u.cfg.SelectDevice = func(dev.USBConnection) { close(finished) }
 		u.work("Восстановление из бэкапа", func(context.Context) error {
 			for i := 1; i <= 1000; i++ {
 				stage := "write"
@@ -330,7 +330,7 @@ func TestCancelReturnsToMenuWithoutDialog(t *testing.T) {
 				}
 			}
 			u.app.QueueUpdateDraw(func() {
-				u.cfg.SelectDevice = func(string) { signal() }
+				u.cfg.SelectDevice = func(dev.USBConnection) { signal() }
 				u.work("Подготовка файлов для установки", func(context.Context) error {
 					<-release // An in-flight operation finishes at its safe boundary.
 					switch outcome {

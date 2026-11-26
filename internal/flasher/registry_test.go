@@ -6,12 +6,13 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -84,14 +85,14 @@ func TestRegistryAddsBoardWithoutChangingEngine(t *testing.T) {
 	if Resolve(f.report, mustCatalog(t)).Status == "matched" {
 		t.Fatal("synthetic board already supported")
 	}
-	profile := qualifySimulator(f.report)
+	profile := fixtureProfile(f.report)
 	profile.ID = "synthetic-rootfs"
 	profile.Recipe = "preserve-gpt-v1"
 	profile.Board = "synthetic"
 	profile.Layout = "boot-rootfs"
 	profile.BootFirmwarePolicy = BootFirmwarePolicy
 	profile.SourceSets = []ReviewedSourceSet{{ID: "source", Fingerprint: SourceSetFingerprint(f.report.Variants), Review: "synthetic fixture"}}
-	p.Boards = append(p.Boards, BoardDescriptor{Version: 1, ID: "synthetic", Name: "Synthetic board", SoC: "msm8916", Revision: 1, Status: "supported", Variants: []BoardVariant{{Version: 1, Profile: profile, Requires: ProfileRequirements{EngineVersion, "1.0.0", []string{"preserve-gpt-v1"}}, RuntimeBundle: "linux17"}}})
+	p.Boards = append(p.Boards, BoardDescriptor{Version: 1, ID: "synthetic", Name: "Synthetic board", SoC: "msm8916", Revision: 1, Variants: []BoardVariant{{Version: 1, Profile: profile, Requires: ProfileRequirements{EngineVersion, "1.0.0", []string{"preserve-gpt-v1"}}, RuntimeBundle: "linux17"}}})
 	s, e := VerifyRegistry(signedFixture(t, p, id, key), keys)
 	if e != nil {
 		t.Fatal(e)
@@ -124,7 +125,7 @@ func mustCatalog(t *testing.T) []HardwareProfile {
 	return ps
 }
 func TestRegistryCompatibilityGates(t *testing.T) {
-	for _, kind := range []string{"valid", "flasher", "firmware", "capability", "schema", "blocked", "revoked", "candidate", "soc", "recipe", "development"} {
+	for _, kind := range []string{"valid", "flasher", "firmware", "capability", "schema", "soc", "recipe", "development"} {
 		t.Run(kind, func(t *testing.T) {
 			p, id, key, keys := registryFixture(t)
 			b := &p.Boards[0]
@@ -144,16 +145,6 @@ func TestRegistryCompatibilityGates(t *testing.T) {
 			case "schema":
 				v.Version = 2
 				want = "flasher-update-required"
-			case "blocked":
-				b.Status = "blocked"
-				b.Reason = "unsupported wiring"
-				want = "blocked"
-			case "revoked":
-				p.Revoked = map[string]string{Hash([]any{b.ID, b.Name, b.SoC, b.Version, b.Revision, b.Status, b.Reason, *v}): "revoked"}
-				want = "blocked"
-			case "candidate":
-				b.Status = "candidate"
-				want = "candidate"
 			case "soc":
 				b.SoC = "other"
 				want = "flasher-update-required"
@@ -197,8 +188,7 @@ func TestRegistryCacheAndRollback(t *testing.T) {
 		t.Fatal("not updated")
 	}
 	p.Sequence = 2
-	p.Boards[0].Status = "blocked"
-	p.Boards[0].Reason = "wiring requires review"
+	p.Boards[0].Name = "HMUF02 updated"
 	raw = signedFixture(t, p, id, key)
 	if e = c.Refresh(context.Background()); e != nil {
 		t.Fatal(e)
@@ -232,39 +222,14 @@ func TestRegistryCacheAndRollback(t *testing.T) {
 		t.Fatal("unexpected request count", requests)
 	}
 }
-func TestRegistryBootstrapPreservesCatalogAndDecisions(t *testing.T) {
-	raw, e := os.ReadFile("testdata/catalog-v1.json")
-	if e != nil {
-		t.Fatal(e)
-	}
-	var original []HardwareProfile
-	if e = json.Unmarshal(raw, &original); e != nil {
-		t.Fatal(e)
-	}
-	current := mustCatalog(t)
-	if len(current) != len(original) {
-		t.Fatal("profile count changed")
-	}
-	for _, old := range original {
-		found := false
-		for _, p := range current {
-			if p.ID == old.ID {
-				found = true
-				if Hash(p) != Hash(old) {
-					t.Fatal("initial qualification changed", p.ID)
-				}
-			}
-		}
-		if !found {
-			t.Fatal("initial profile missing", old.ID)
-		}
-	}
+func TestRegistryMatchingUsesSourceData(t *testing.T) {
 	f := newFixture(t)
-	for _, kind := range []string{"exact", "guid", "capacity", "missing-area", "map", "issue", "selector", "extra", "missing", "layout", "candidate", "two-matches", "new-gpio", "private-metadata"} {
+	var e error
+	for _, kind := range []string{"exact", "guid", "capacity", "missing-area", "map", "issue", "selector", "extra", "missing", "layout", "missing-recipe", "two-matches", "new-gpio", "private-metadata"} {
 		t.Run(kind, func(t *testing.T) {
 			r := f.report
 			r.Variants = append([]DTVariant(nil), r.Variants...)
-			profile := qualifySimulator(r)
+			profile := fixtureProfile(r)
 			profile.Board = "synthetic"
 			profile.Layout = "boot-rootfs"
 			profile.SourceSets = []ReviewedSourceSet{{ID: "source", Fingerprint: SourceSetFingerprint(r.Variants), CompatibilityFingerprint: CompatibilitySetFingerprint(r.Variants), Review: "synthetic fixture"}}
@@ -289,8 +254,8 @@ func TestRegistryBootstrapPreservesCatalogAndDecisions(t *testing.T) {
 				r.Variants = nil
 			case "layout":
 				r.GPT = PartitionTable{}
-			case "candidate":
-				ps[0].Qualified = false
+			case "missing-recipe":
+				ps[0].Recipe = ""
 			case "two-matches":
 				other := profile
 				other.ID = "other"
@@ -307,10 +272,10 @@ func TestRegistryBootstrapPreservesCatalogAndDecisions(t *testing.T) {
 					t.Fatal(e)
 				}
 			}
-			before := resolveCatalogV1(r, ps)
-			after := Resolve(r, ps)
-			if !reflect.DeepEqual(before, after) {
-				t.Fatalf("before=%+v after=%+v", before, after)
+			got := Resolve(r, ps)
+			want := kind == "exact" || kind == "guid" || kind == "capacity" || kind == "private-metadata" || kind == "extra"
+			if (got.Status == "matched") != want {
+				t.Fatalf("%s: %+v", kind, got)
 			}
 		})
 	}
@@ -388,7 +353,7 @@ func TestRegistryProfilesAreImmutable(t *testing.T) {
 		t.Fatal("proof copy changed snapshot")
 	}
 }
-func TestRegistryRetryUsesOriginalProofAndHonorsRevocation(t *testing.T) {
+func TestRegistryRetryUsesOriginalProofAndCurrentMembership(t *testing.T) {
 	p, id, key, keys := registryFixture(t)
 	raw := signedFixture(t, p, id, key)
 	original, e := VerifyRegistry(raw, keys)
@@ -416,58 +381,38 @@ func TestRegistryRetryUsesOriginalProofAndHonorsRevocation(t *testing.T) {
 		t.Fatal("damaged evidence accepted")
 	}
 	p.Sequence++
-	p.Revoked = map[string]string{ref.ProfileSHA256: "firmware contract withdrawn"}
-	revoked, e := VerifyRegistry(signedFixture(t, p, id, key), keys)
+	p.Boards = nil
+	withdrawn, e := VerifyRegistry(signedFixture(t, p, id, key), keys)
 	if e != nil {
 		t.Fatal(e)
 	}
-	if _, e = revoked.PinnedProfile(raw, ref, EngineVersion, ""); e == nil {
-		t.Fatal("known revocation bypassed by retry")
+	if _, e = withdrawn.PinnedProfile(raw, ref, EngineVersion, ""); e == nil {
+		t.Fatal("removed profile used by retry")
 	}
 }
-func TestRegistryPublicationRetainsWithdrawals(t *testing.T) {
+func TestRegistryPublicationCanRemoveBoards(t *testing.T) {
 	p, id, key, keys := registryFixture(t)
 	old, e := VerifyRegistry(signedFixture(t, p, id, key), keys)
 	if e != nil {
 		t.Fatal(e)
 	}
-	raw, _ := json.Marshal(p)
-	var next RegistryPayload
-	json.Unmarshal(raw, &next)
-	next.Boards[0].Status = "blocked"
-	next.Boards[0].Reason = "power mapping requires review"
-	if e = PrepareRegistryPublication(&next, old); e != nil {
+	p.Boards = nil
+	if e = PrepareRegistryPublication(&p, old.Sequence()); e != nil {
 		t.Fatal(e)
 	}
-	if next.Sequence != 2 || len(next.Revoked) != 2 {
-		t.Fatal("withdrawal not bound to both variants")
+	if p.Sequence != 2 {
+		t.Fatal("catalog revision not advanced")
 	}
-	blocked, e := VerifyRegistry(signedFixture(t, next, id, key), keys)
-	if e != nil {
-		t.Fatal(e)
-	}
-	next.Boards[0].Status = "supported"
-	next.Boards[0].Reason = ""
-	if e = PrepareRegistryPublication(&next, blocked); e == nil {
-		t.Fatal("silent unblock accepted")
-	}
-	next.Boards[0].Revision++
-	if e = PrepareRegistryPublication(&next, blocked); e != nil {
-		t.Fatal(e)
-	}
-	if len(next.Revoked) != 2 {
-		t.Fatal("revocations disappeared")
-	}
-	next.Boards = next.Boards[1:]
-	if e = PrepareRegistryPublication(&next, blocked); e == nil {
-		t.Fatal("withdrawn board removed")
+	next, e := VerifyRegistry(signedFixture(t, p, id, key), keys)
+	if e != nil || len(next.Profiles(EngineVersion, "", nil)) != 0 {
+		t.Fatal("removed entries retained", e)
 	}
 }
 func TestRegistryRecognizeStockImageDoesNotRequireBootAreas(t *testing.T) {
 	f := newFixture(t)
 	r := f.report
 	r.Device.Geometry = Geometry{512, map[string]uint64{"user": 64 << 20}}
-	p := qualifySimulator(r)
+	p := fixtureProfile(r)
 	p.Board = "synthetic"
 	p.Layout = "boot-rootfs"
 	p.SourceSets = []ReviewedSourceSet{{ID: "source", Fingerprint: SourceSetFingerprint(r.Variants), Review: "synthetic fixture"}}
@@ -485,19 +430,34 @@ func TestRegistryAuthenticatedBoardBuildsAndExecutesBoundedPlan(t *testing.T) {
 	f.d.info.Identity.Kind = "storage"
 	r.Device = f.d.info
 	p, id, key, keys := registryFixture(t)
-	profile := qualifySimulator(r)
+	profile := fixtureProfile(r)
 	profile.ID = "synthetic-install"
 	profile.Recipe = "preserve-gpt-v1"
 	profile.Board = "synthetic-install"
 	profile.Layout = "boot-rootfs"
 	profile.BootFirmwarePolicy = BootFirmwarePolicy
-	profile.SourceSets = []ReviewedSourceSet{{ID: "source", Fingerprint: SourceSetFingerprint(r.Variants), Review: "synthetic fixture"}}
-	p.Boards = append(p.Boards, BoardDescriptor{Version: 1, ID: "synthetic-install", Name: "Synthetic installation", SoC: "msm8916", Revision: 1, Status: "supported", Variants: []BoardVariant{{Version: 1, Profile: profile, Requires: ProfileRequirements{EngineVersion, "0.0.0", []string{"preserve-gpt-v1", "payload-v1"}}, RuntimeBundle: "linux17"}}})
-	s, e := VerifyRegistry(signedFixture(t, p, id, key), keys)
+	archive, e := ExportBoardReport(testCtx, f.d, r, t.TempDir(), nil)
 	if e != nil {
 		t.Fatal(e)
 	}
-	for _, q := range s.Profiles(EngineVersion, "", nil) {
+	var support BoardSupport
+	decodeReportFile(t, readReportArchive(t, archive), "SUPPORT.json", &support)
+	profile.SourceSets = []ReviewedSourceSet{{ID: "source", Fingerprint: support.SourceSetFingerprint}}
+	p.Boards = append(p.Boards, BoardDescriptor{Version: 1, ID: "synthetic-install", Name: "Synthetic installation", SoC: "msm8916", Revision: 1, Variants: []BoardVariant{{Version: 1, Profile: profile, Requires: ProfileRequirements{EngineVersion, "0.0.0", []string{"preserve-gpt-v1", "payload-v1"}}, RuntimeBundle: "linux17"}}})
+	raw := signedFixture(t, p, id, key)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write(raw) }))
+	defer server.Close()
+	client, e := openRegistryClient(t.TempDir(), server.URL, keys, server.Client())
+	if e != nil {
+		t.Fatal(e)
+	}
+	if got := Resolve(r, client.Current().Profiles(EngineVersion, "", nil)); got.Status == "matched" {
+		t.Fatal("board already present")
+	}
+	if e = client.Refresh(testCtx); e != nil {
+		t.Fatal(e)
+	}
+	for _, q := range client.Current().Profiles(EngineVersion, "", nil) {
 		if q.ID == profile.ID {
 			profile = q
 		}
@@ -530,7 +490,7 @@ func TestRegistryAuthenticatedBoardBuildsAndExecutesBoundedPlan(t *testing.T) {
 	if e = SaveJSON(filepath.Join(f.images, "HardwareInputs.json"), att); e != nil {
 		t.Fatal(e)
 	}
-	plan, e := BuildQualifiedInstallPlan(testCtx, f.d, r, profile, f.images, "y", "", f.mapper)
+	plan, e := BuildProfileInstallPlan(testCtx, f.d, r, profile, f.images, "y", "", f.mapper)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -550,38 +510,9 @@ func TestRegistryAuthenticatedBoardBuildsAndExecutesBoundedPlan(t *testing.T) {
 		t.Fatal("dynamic profile resumed without its registry")
 	}
 
-	p.Sequence++
-	last := len(p.Boards) - 1
-	p.Boards[last].Variants[0].LegacyProfileSHA256 = Hash(p.Boards[last].Variants[0].Profile)
-	legacySnapshot, e := VerifyRegistry(signedFixture(t, p, id, key), keys)
-	if e != nil {
-		t.Fatal(e)
-	}
-	var legacyProfile HardwareProfile
-	for _, q := range legacySnapshot.Profiles(EngineVersion, "", nil) {
-		if q.ID == profile.ID {
-			legacyProfile = q
-		}
-	}
-	att.Registry = nil
-	if e = SaveJSON(filepath.Join(f.images, "HardwareInputs.json"), att); e != nil {
-		t.Fatal(e)
-	}
-	legacyPlan, e := BuildQualifiedInstallPlan(testCtx, f.d, r, legacyProfile, f.images, "y", "", f.mapper)
-	if e != nil {
-		t.Fatal("exact legacy attestation rejected", e)
-	}
-	if legacyPlan.Registry != nil {
-		t.Fatal("legacy plan serialization changed")
-	}
-	before := Hash(legacyPlan)
-	resumed, e := ResumePlan(testCtx, f.d, legacyPlan, legacyProfile)
-	if e != nil || Hash(resumed) != before {
-		t.Fatal("legacy plan hash changed during qualification", e)
-	}
 }
 
-func TestRegistryETagAndSingleAutomaticRefresh(t *testing.T) {
+func TestRegistryRefreshesOnEveryAttempt(t *testing.T) {
 	p, id, key, keys := registryFixture(t)
 	raw := signedFixture(t, p, id, key)
 	requests := 0
@@ -599,16 +530,122 @@ func TestRegistryETagAndSingleAutomaticRefresh(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	if e = c.Ensure(testCtx); e != nil {
+	if e = c.Refresh(testCtx); e != nil {
 		t.Fatal(e)
 	}
-	if e = c.Ensure(testCtx); e != nil {
+	if e = c.Refresh(testCtx); e != nil {
 		t.Fatal(e)
 	}
-	if requests != 1 {
-		t.Fatal("automatic refresh repeated", requests)
+	if requests != 2 {
+		t.Fatal("catalog was not reread", requests)
 	}
-	if e = c.Refresh(testCtx); e != nil || requests != 2 || c.Current().Sequence() != 1 {
+	if e = c.Refresh(testCtx); e != nil || requests != 3 || c.Current().Sequence() != 1 {
 		t.Fatal("conditional refresh", e, requests)
+	}
+}
+
+func TestRegistryUnreadableCacheFallsBackAndCanRefresh(t *testing.T) {
+	p, id, key, keys := registryFixture(t)
+	raw := signedFixture(t, p, id, key)
+	root := t.TempDir()
+	writeTest(t, filepath.Join(root, "current.json"), []byte(`{"incompatible":true}`))
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write(raw) }))
+	defer server.Close()
+	client, e := openRegistryClient(root, server.URL, keys, server.Client())
+	if e != nil || client.Current().Source() != "bundled" {
+		t.Fatal("cache prevented startup", e)
+	}
+	if e = client.Refresh(testCtx); e != nil || client.Current().Sequence() != 1 {
+		t.Fatal("catalog could not replace unreadable cache", e)
+	}
+}
+
+func TestRegistryPublicationHeaderDoesNotInterpretProfiles(t *testing.T) {
+	p, id, key, keys := registryFixture(t)
+	raw := signedFixture(t, p, id, key)
+	info, e := VerifyRegistryPublication(raw, keys)
+	if e != nil || info.Sequence != p.Sequence || info.Commit != p.Commit || info.Content != RegistryContentDigest(p) {
+		t.Fatal("publication header", e)
+	}
+	var env RegistryEnvelope
+	json.Unmarshal(raw, &env)
+	var payload map[string]any
+	json.Unmarshal(env.Payload, &payload)
+	payload["boards"] = []any{map[string]any{"future_field": "opaque"}}
+	env.Payload, _ = json.Marshal(payload)
+	env.Signature = ed25519.Sign(key, env.Payload)
+	raw, _ = json.Marshal(env)
+	if _, e = VerifyRegistryPublication(raw, keys); e != nil {
+		t.Fatal("publication tried to read device-profile structure", e)
+	}
+	if _, e = VerifyRegistry(raw, keys); e == nil {
+		t.Fatal("incomplete catalog loaded for installation")
+	}
+}
+
+func TestRegistryRefreshReplacesSignedStatusCatalog(t *testing.T) {
+	p, id, key, keys := registryFixture(t)
+	var fields map[string]any
+	original, _ := json.Marshal(p)
+	json.Unmarshal(original, &fields)
+	for _, board := range fields["boards"].([]any) {
+		board.(map[string]any)["status"] = "supported"
+	}
+	oldPayload, _ := json.Marshal(fields)
+	old, _ := json.Marshal(RegistryEnvelope{Payload: oldPayload, KeyID: id, Signature: ed25519.Sign(key, oldPayload)})
+	if _, e := VerifyRegistry(old, keys); e == nil || !strings.Contains(e.Error(), "status") {
+		t.Fatal("old status catalog was accepted", e)
+	}
+	previous, e := VerifyRegistryPublication(old, keys)
+	if e != nil {
+		t.Fatal("publisher could not read old publication header", e)
+	}
+	if e = PrepareRegistryPublication(&p, previous.Sequence); e != nil {
+		t.Fatal(e)
+	}
+	next := signedFixture(t, p, id, key)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write(next) }))
+	defer server.Close()
+	root := t.TempDir()
+	writeTest(t, filepath.Join(root, "current.json"), old)
+	c, e := openRegistryClient(root, server.URL, keys, server.Client())
+	if e != nil || c.Current().Source() != "bundled" {
+		t.Fatal("old cache blocked startup", e)
+	}
+	if e = c.Refresh(testCtx); e != nil || c.Current().Sequence() != 2 || c.Warning() != "" {
+		t.Fatal("current publication did not replace old cache", e, c.Warning())
+	}
+	cached, e := readRegistryFile(filepath.Join(root, "current.json"))
+	if e != nil || !bytes.Equal(cached, next) {
+		t.Fatal("updated cache differs", e)
+	}
+}
+
+func TestRegistryCacheLockRespectsCancellation(t *testing.T) {
+	p, id, key, keys := registryFixture(t)
+	raw := signedFixture(t, p, id, key)
+	root := t.TempDir()
+	lock, e := os.OpenFile(filepath.Join(root, ".lock"), os.O_CREATE|os.O_RDWR, 0600)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer lock.Close()
+	if e = syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); e != nil {
+		t.Fatal(e)
+	}
+	defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { w.Write(raw) }))
+	defer server.Close()
+	c, e := openRegistryClient(root, server.URL, keys, server.Client())
+	if e != nil {
+		t.Fatal(e)
+	}
+	ctx, cancel := context.WithTimeout(testCtx, 40*time.Millisecond)
+	defer cancel()
+	if e = c.Refresh(ctx); !errors.Is(e, context.DeadlineExceeded) {
+		t.Fatal("cache lock ignored deadline", e)
+	}
+	if c.Current().Source() != "bundled" {
+		t.Fatal("partial snapshot published")
 	}
 }

@@ -21,20 +21,21 @@ import (
 )
 
 type Session struct {
-	Device flasher.Reader
-	Closer io.Closer
-	Mapper string
+	Device    flasher.Reader
+	Closer    io.Closer
+	Mapper    string
+	ActiveDTB []byte
 }
 type Config struct {
 	Registry       *flasher.RegistryClient
 	FlasherVersion string
 	RegistryError  error
 	Paths          dev.Paths
-	Open           func(context.Context) (Session, error)
+	Open           func(context.Context, flasher.Emit) (Session, error)
 	Profiles       []flasher.HardwareProfile
 	Simulation     bool
-	Devices        func(context.Context) ([]string, error)
-	SelectDevice   func(string)
+	Devices        func(context.Context) ([]dev.USBConnection, error)
+	SelectDevice   func(dev.USBConnection)
 	CopyPath       func(context.Context, string) (string, error)
 	OpenFolder     func(context.Context, string) error
 }
@@ -112,7 +113,7 @@ func (u *UI) closeSession() {
 func (u *UI) open(ctx context.Context) (Session, error) {
 	lifetime, cancel := context.WithCancel(context.Background())
 	stop := context.AfterFunc(ctx, cancel)
-	s, e := u.cfg.Open(lifetime)
+	s, e := u.cfg.Open(lifetime, u.progress)
 	stop()
 	if e != nil || ctx.Err() != nil {
 		cancel()
@@ -141,7 +142,7 @@ func (u *UI) menu() {
 	u.closeSession()
 	u.deviceChecked = false
 	if u.cfg.SelectDevice != nil {
-		u.cfg.SelectDevice("")
+		u.cfg.SelectDevice(dev.USBConnection{})
 	}
 	u.status.SetText(l10n.Text("ui.installation_wizard_tab_enter_select_f2_details_ctrl_c"))
 	list := tview.NewList().ShowSecondaryText(false)
@@ -155,7 +156,7 @@ func (u *UI) menu() {
 			}
 		})
 	}
-	if u.cfg.Registry != nil {
+	if u.cfg.Registry != nil || u.cfg.RegistryError != nil {
 		list.AddItem(l10n.Text("registry.menu"), "", 0, u.registryStatus)
 	}
 	list.SetBorder(true).SetTitle(l10n.Text("ui.main_menu_choose_an_action"))
@@ -240,6 +241,17 @@ func (u *UI) work(title string, fn func(context.Context) error, next func(error)
 	}()
 }
 func (u *UI) failed(e error) {
+	var step *ConnectionStep
+	if errors.As(e, &step) {
+		u.modal(step.Message, []string{l10n.Text("ui.retry"), l10n.Text("ui.main_menu")}, func(i int) {
+			if i == 0 && u.retry != nil {
+				u.retry()
+			} else {
+				u.menu()
+			}
+		})
+		return
+	}
 	if errors.Is(e, context.Canceled) {
 		u.menu()
 		return
@@ -337,8 +349,17 @@ func (u *UI) start(action int) {
 	u.closeSession()
 	u.retry = func() { u.start(action) }
 	if !u.deviceChecked && u.cfg.Devices != nil {
-		var devices []string
-		u.work(l10n.Text("ui.looking_for_edl_connections"), func(ctx context.Context) error { var e error; devices, e = u.cfg.Devices(ctx); return e }, func(e error) {
+		var devices []dev.USBConnection
+		u.work(l10n.Text("ui.looking_for_usb_connections"), func(ctx context.Context) error {
+			ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+			defer cancel()
+			var e error
+			devices, e = u.cfg.Devices(ctx)
+			if e == nil && len(devices) == 0 {
+				e = &ConnectionStep{Message: l10n.Text("ui.no_usb_connections")}
+			}
+			return e
+		}, func(e error) {
 			if e != nil {
 				u.failed(e)
 				return
@@ -353,11 +374,11 @@ func (u *UI) start(action int) {
 			}
 			list := tview.NewList()
 			list.SetBorder(true).SetTitle(l10n.Text("ui.select_a_usb_connection"))
-			for _, path := range devices {
-				path := path
-				list.AddItem("USB "+path, "05c6:9008", 0, func() {
+			for _, device := range devices {
+				device := device
+				list.AddItem("USB "+device.Path+" ("+strings.ToUpper(device.Transport)+")", "", 0, func() {
 					if u.cfg.SelectDevice != nil {
-						u.cfg.SelectDevice(path)
+						u.cfg.SelectDevice(device)
 					}
 					u.start(action)
 				})
@@ -379,17 +400,6 @@ func (u *UI) start(action int) {
 		mode = "update"
 	}
 	u.work(l10n.Text("ui.connecting_and_identifying_the_device"), func(ctx context.Context) error {
-		if u.cfg.RegistryError != nil && action != 2 {
-			return u.cfg.RegistryError
-		}
-		if u.cfg.Registry != nil && action != 2 {
-			_ = u.cfg.Registry.Ensure(ctx)
-			u.cfg.Profiles = u.cfg.Registry.Current().Profiles(u.cfg.FlasherVersion, "", nil)
-			fmt.Fprintln(u.details, l10n.Text("registry.source"), u.cfg.Registry.Current().Source(), u.cfg.Registry.Current().Published())
-			if warning := u.cfg.Registry.Warning(); warning != "" {
-				fmt.Fprintln(u.details, warning)
-			}
-		}
 		s, e := u.open(ctx)
 		if e != nil {
 			return e
@@ -415,7 +425,34 @@ func (u *UI) start(action int) {
 				profiles = append(profiles, flasher.SimulatorProfile(r))
 			}
 		}
-		result, e = flasher.InspectAndReport(ctx, s.Device, profiles, filepath.Join(u.cfg.Paths.Work, "board-reports"), u.progress)
+		var detect func(flasher.HardwareReport) (flasher.HardwareProfile, error)
+		if !u.cfg.Simulation {
+			detect = func(r flasher.HardwareReport) (flasher.HardwareProfile, error) {
+				return dev.DetectAutomaticProfile(u.cfg.Paths, r)
+			}
+		}
+		result, e = flasher.InspectWithFallback(ctx, s.Device, s.ActiveDTB, detect, func(ctx context.Context) ([]flasher.HardwareProfile, error) {
+			if u.cfg.Registry != nil && action != 2 {
+				u.progress(flasher.Progress{Stage: "registry", Message: l10n.Text("registry.refresh")})
+				if err := u.cfg.Registry.Refresh(ctx); err != nil {
+					fmt.Fprintln(u.details, l10n.Diagnostic(u.cfg.Registry.Warning()))
+				}
+				profiles = u.cfg.Registry.Current().Profiles(u.cfg.FlasherVersion, "", nil)
+			} else if u.cfg.RegistryError != nil {
+				fmt.Fprintln(u.details, l10n.Diagnostic(u.cfg.RegistryError.Error()))
+			}
+			u.cfg.Profiles = profiles
+			return profiles, ctx.Err()
+		}, filepath.Join(u.cfg.Paths.Work, "board-reports"), u.progress)
+		if result.Profile != nil {
+			kept := u.cfg.Profiles[:0]
+			for _, p := range u.cfg.Profiles {
+				if p.ID != result.Profile.ID {
+					kept = append(kept, p)
+				}
+			}
+			u.cfg.Profiles = append(kept, *result.Profile)
+		}
 		return e
 	}, func(e error) {
 		if e != nil {
@@ -455,13 +492,15 @@ func (u *UI) start(action int) {
 }
 
 func (u *UI) preparationSupport(op *dev.FlasherOperation, cause error) {
+	var input *flasher.UnsupportedInput
+	if !errors.As(cause, &input) || input.Code == "boot-firmware-security" {
+		u.failed(cause)
+		return
+	}
 	r := op.Report
 	r.Resolution.Status = "unsupported"
 	r.Resolution.Reasons = []string{cause.Error()}
-	var input *flasher.UnsupportedInput
-	if errors.As(cause, &input) {
-		r.InputFailure = input.Code
-	}
+	r.InputFailure = input.Code
 	var archive string
 	u.work(l10n.Text("ui.preparing_a_support_report"), func(ctx context.Context) error {
 		snapshot, e := flasher.OpenSnapshot(u.session.Device, op.Backup)
@@ -618,8 +657,14 @@ func (u *UI) beginInstall(r flasher.HardwareReport, o dev.WizardOptions, pending
 }
 func (u *UI) runInstall(op *dev.FlasherOperation, o dev.WizardOptions) {
 	profile, e := u.profile(op.Report)
-	if u.cfg.Registry != nil && op.Registry != nil {
-		profile, e = dev.OperationProfile(op, u.cfg.Registry.Current(), u.cfg.FlasherVersion)
+	if op.Automatic != nil {
+		profile, e = flasher.AutomaticProfile(op.Report, *op.Automatic)
+	} else if u.cfg.Registry != nil && op.Registry != nil {
+		var snapshot *flasher.RegistrySnapshot
+		if u.cfg.Registry != nil {
+			snapshot = u.cfg.Registry.Current()
+		}
+		profile, e = dev.OperationProfile(op, snapshot, u.cfg.FlasherVersion)
 	}
 	if e != nil {
 		u.failed(e)

@@ -7,7 +7,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
-	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"time"
@@ -27,6 +27,8 @@ func main() {
 	}
 }
 func run(args []string) error {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
 	f := flag.NewFlagSet("microstick-flasher", flag.ContinueOnError)
 	repo := f.String("repository", ".", l10n.Text("cli.repository"))
 	distribution := f.String("distribution", "", l10n.Text("cli.distribution"))
@@ -41,6 +43,7 @@ func run(args []string) error {
 	output := f.String("output", "", l10n.Text("cli.output"))
 	input := f.String("input", "", l10n.Text("cli.input"))
 	edl := f.Bool("edl", false, l10n.Text("cli.edl"))
+	activeFile := f.String("active-dtb", "", "active device tree captured from the connected device")
 	if e := f.Parse(args); e != nil {
 		if errors.Is(e, flag.ErrHelp) {
 			return nil
@@ -68,10 +71,7 @@ func run(args []string) error {
 	if e != nil {
 		return e
 	}
-	profiles, e := flasher.Catalog()
-	if e != nil {
-		return e
-	}
+	var profiles []flasher.HardwareProfile
 	client, e := flasher.NewRegistryClient(p.Work)
 	registryError := e
 	clientVersion := version
@@ -89,7 +89,7 @@ func run(args []string) error {
 		}
 		switch *operation {
 		case "registry-update":
-			if e = client.Refresh(context.Background()); e != nil {
+			if e = client.Refresh(ctx); e != nil {
 				return e
 			}
 		case "registry-import":
@@ -162,7 +162,18 @@ func run(args []string) error {
 		}
 		return flasher.SaveJSON(dst, vs)
 	}
-	open := func(ctx context.Context) (flasherui.Session, error) {
+	readActiveFile := func() ([]byte, error) {
+		if *activeFile == "" {
+			return nil, nil
+		}
+		path, e := external(*activeFile)
+		if e != nil {
+			return nil, e
+		}
+		return os.ReadFile(path)
+	}
+	selected := dev.USBConnection{Path: *serial}
+	open := func(ctx context.Context, progress flasher.Emit) (flasherui.Session, error) {
 		if *image != "" {
 			paths := map[string]string{}
 			for area, path := range map[string]string{"user": *image, "boot1": *boot1, "boot2": *boot2} {
@@ -186,67 +197,134 @@ func run(args []string) error {
 			if e != nil {
 				return flasherui.Session{}, e
 			}
-			mapper, _, _, e := dev.FlasherBootstrap(p, false)
+			mapper, _, _, e := dev.FlasherBootstrapContext(ctx, p, false)
 			if e != nil {
 				d.Close()
 				return flasherui.Session{}, e
 			}
-			return flasherui.Session{Device: d, Closer: d, Mapper: mapper}, nil
+			active, e := readActiveFile()
+			if e != nil {
+				d.Close()
+				return flasherui.Session{}, e
+			}
+			return flasherui.Session{Device: d, Closer: d, Mapper: mapper, ActiveDTB: active}, nil
 		}
 		if *sim {
 			return flasherui.Session{}, errors.New("--simulation requires --stock-image")
 		}
-		mapper, helper, programmer, e := dev.FlasherBootstrap(p, true)
+		if selected.Path == "" || strings.HasPrefix(selected.Path, "@") {
+			if progress != nil {
+				progress(flasher.Progress{Stage: "discovery", Message: l10n.Text("ui.looking_for_usb_connections")})
+			}
+			connections, err := dev.USBConnections(ctx)
+			if err != nil {
+				return flasherui.Session{}, &flasherui.DeviceDiscoveryError{Cause: err}
+			}
+			if selected.Path == "" {
+				if len(connections) == 0 {
+					return flasherui.Session{}, &flasherui.ConnectionStep{Message: l10n.Text("ui.no_usb_connections")}
+				}
+				if len(connections) != 1 {
+					return flasherui.Session{}, errors.New("Select a USB connection before opening the device")
+				}
+				selected = connections[0]
+			} else {
+				found := false
+				for _, device := range connections {
+					if device.Path == selected.Path {
+						selected = device
+						found = true
+						break
+					}
+				}
+				if !found {
+					return flasherui.Session{}, &flasherui.ConnectionStep{Message: l10n.Text("ui.no_usb_connections")}
+				}
+			}
+			*serial = selected.Path
+		}
+		if selected.Transport == "adb" {
+			if e := selected.Ready(); e != nil {
+				return flasherui.Session{}, &flasherui.ConnectionStep{Message: e.Error()}
+			}
+			if progress != nil {
+				progress(flasher.Progress{Stage: "active-dtb", Message: l10n.Text("ui.reading_device_tree")})
+			}
+			live, err := dev.CaptureLiveTree(ctx, p, selected.Path, progress)
+			if err != nil {
+				return flasherui.Session{}, err
+			}
+			selected.Transport = "" // Re-enumerate this USB path on Retry.
+			if live != nil {
+				return flasherui.Session{}, &flasherui.ConnectionStep{Message: l10n.Text("ui.active_tree_switch_edl")}
+			}
+			return flasherui.Session{}, &flasherui.ConnectionStep{Message: l10n.Text("ui.no_usb_connections")}
+		}
+		if progress != nil {
+			progress(flasher.Progress{Stage: "helpers", Message: l10n.Text("ui.preparing_connection_tools")})
+		}
+		mapper, helper, programmer, e := dev.FlasherBootstrapContext(ctx, p, true)
 		if e != nil {
 			return flasherui.Session{}, e
 		}
+		saved, e := dev.LoadLiveTree(p, *serial)
+		if e != nil {
+			return flasherui.Session{}, e
+		}
+		if progress != nil {
+			progress(flasher.Progress{Stage: "edl", Message: l10n.Text("ui.connecting_and_identifying_the_device")})
+		}
+		opening, cancelOpening := context.WithCancel(ctx)
+		timer := time.AfterFunc(20*time.Second, cancelOpening)
+		defer timer.Stop()
 		var d *flasher.EDLReader
 		deadline := time.Now().Add(20 * time.Second)
 		for {
-			d, e = flasher.OpenEDL(ctx, helper, programmer, *serial)
-			if e == nil || time.Now().After(deadline) || ctx.Err() != nil {
+			d, e = flasher.OpenEDL(opening, helper, programmer, *serial)
+			if e == nil || time.Now().After(deadline) || opening.Err() != nil {
 				break
 			}
 			if !flasher.RetryableEDL(e) && !strings.Contains(e.Error(), "device-not-found") && !strings.Contains(e.Error(), "не найдено") {
 				break
 			}
 			select {
-			case <-ctx.Done():
-				return flasherui.Session{}, ctx.Err()
+			case <-opening.Done():
+				cancelOpening()
+				return flasherui.Session{}, opening.Err()
 			case <-time.After(time.Second):
 			}
 		}
 		if e != nil {
+			cancelOpening()
 			return flasherui.Session{}, e
 		}
-		return flasherui.Session{Device: d, Closer: d, Mapper: mapper}, nil
+		timer.Stop()
+		var active []byte
+		if saved != nil {
+			active = saved.DTB
+		}
+		if *activeFile != "" {
+			active, e = readActiveFile()
+			if e != nil {
+				d.Close()
+				return flasherui.Session{}, e
+			}
+		}
+		return flasherui.Session{Device: d, Closer: d, Mapper: mapper, ActiveDTB: active}, nil
 	}
 	if *operation == "tui" {
 		cfg := flasherui.Config{Paths: p, Open: open, Profiles: profiles, Simulation: *sim, Registry: client, FlasherVersion: clientVersion, RegistryError: registryError}
 		if *image == "" && *serial == "" {
-			cfg.SelectDevice = func(path string) { *serial = path }
-			cfg.Devices = func(ctx context.Context) ([]string, error) {
-				_, helper, _, e := dev.FlasherBootstrap(p, true)
-				if e != nil {
-					return nil, e
-				}
-				b, e := exec.CommandContext(ctx, helper, "--list").Output()
-				if e != nil {
-					var exit *exec.ExitError
-					if errors.As(e, &exit) && len(exit.Stderr) > 0 {
-						e = fmt.Errorf("%w: %s", e, strings.TrimSpace(string(exit.Stderr)))
-					}
-					return nil, &flasherui.DeviceDiscoveryError{Cause: e}
-				}
-				return strings.Fields(string(b)), nil
-			}
+			cfg.SelectDevice = func(device dev.USBConnection) { selected = device; *serial = device.Path }
+			cfg.Devices = dev.USBConnections
 		}
+
 		return flasherui.New(cfg).Run()
 	}
 	if *operation == "probe" {
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		s, e := open(ctx)
+		s, e := open(ctx, nil)
 		if e != nil {
 			return e
 		}
@@ -271,14 +349,14 @@ func run(args []string) error {
 	if e != nil {
 		return e
 	}
-	if *operation == "inspect" {
-		if registryError != nil {
-			return registryError
+	var lastProgress time.Time
+	progress := func(p flasher.Progress) {
+		if time.Since(lastProgress) >= 200*time.Millisecond || p.Stage != "active-dtb" {
+			fmt.Fprintln(os.Stderr, l10n.Diagnostic(p.Message))
+			lastProgress = time.Now()
 		}
-		_ = client.Refresh(context.Background())
-		profiles = client.Current().Profiles(clientVersion, "", nil)
 	}
-	session, e := open(context.Background())
+	session, e := open(ctx, progress)
 	if e != nil {
 		return e
 	}
@@ -287,7 +365,19 @@ func run(args []string) error {
 	if *operation == "backup" {
 		reportDir = filepath.Join(filepath.Dir(out), "board-reports")
 	}
-	result, e := flasher.InspectAndReport(context.Background(), session.Device, profiles, reportDir, nil)
+	result, e := flasher.InspectWithFallback(ctx, session.Device, session.ActiveDTB, func(r flasher.HardwareReport) (flasher.HardwareProfile, error) {
+		return dev.DetectAutomaticProfile(p, r)
+	}, func(ctx context.Context) ([]flasher.HardwareProfile, error) {
+		if client != nil {
+			if err := client.Refresh(ctx); err != nil {
+				fmt.Fprintln(os.Stderr, l10n.Diagnostic(client.Warning()))
+			}
+			profiles = client.Current().Profiles(clientVersion, "", nil)
+		} else if registryError != nil {
+			fmt.Fprintln(os.Stderr, l10n.Diagnostic(registryError.Error()))
+		}
+		return profiles, ctx.Err()
+	}, reportDir, progress)
 	if result.Archive != "" {
 		fmt.Println(l10n.Text("cli.support_report"), result.Archive)
 	}
@@ -310,7 +400,7 @@ func run(args []string) error {
 		bytes += r.Length
 	}
 	fmt.Printf("Backup upper bound: %d bytes; ext4 free blocks omitted after allocation/journal verification\n", bytes)
-	_, e = flasher.CreateBackup(context.Background(), session.Device, result.Report, out, flasher.BackupOptions{Mapper: session.Mapper, AllowFull: true})
+	_, e = flasher.CreateBackup(ctx, session.Device, result.Report, out, flasher.BackupOptions{Mapper: session.Mapper, AllowFull: true})
 	if e == nil {
 		fmt.Println("PASS: verified backup saved; no storage writes")
 	}

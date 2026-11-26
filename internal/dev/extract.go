@@ -623,7 +623,7 @@ func Extract(p Paths, reader rangeReader, output string) error {
 	if e != nil {
 		return e
 	}
-	_ = registry.Ensure(context.Background())
+	_ = registry.Refresh(context.Background())
 	profiles := registry.Current().Profiles(flasher.EngineVersion, "", nil)
 	resolution := flasher.Recognize(report, profiles)
 	if resolution.Status != "matched" {

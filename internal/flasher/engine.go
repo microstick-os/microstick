@@ -30,10 +30,10 @@ func BuildInstallPlan(ctx context.Context, d Reader, r HardwareReport, images st
 	return buildInstallPlan(ctx, d, r, images, quickAnswer, backup, p, mapper...)
 }
 
-// BuildQualifiedInstallPlan re-resolves a reviewed profile, verifies the image
+// BuildProfileInstallPlan re-resolves a reviewed profile, verifies the image
 // attestation against its exact bundle, and permits only the implemented
 // no-repartition boot/rootfs or reviewed stock boot/system/userdata recipe.
-func BuildQualifiedInstallPlan(ctx context.Context, d Reader, r HardwareReport, profile HardwareProfile, images, quickAnswer, backup string, mapper ...string) (InstallPlan, error) {
+func BuildProfileInstallPlan(ctx context.Context, d Reader, r HardwareReport, profile HardwareProfile, images, quickAnswer, backup string, mapper ...string) (InstallPlan, error) {
 	if !canonicalNativeProfile(profile) {
 		return InstallPlan{}, ErrUnsupported
 	}
@@ -48,16 +48,13 @@ func BuildQualifiedInstallPlan(ctx context.Context, d Reader, r HardwareReport, 
 	if !nativeIdentity(r.Device.Identity) || profile.Recipe != "preserve-gpt-v1" {
 		return p, ErrUnsupported
 	}
-	p.qualification = &profile
+	p.catalogProfile = &profile
 	var att ImageAttestation
 	if e := readJSON(filepath.Join(images, "HardwareInputs.json"), &att); e != nil {
 		return p, e
 	}
 	if att.Version != Schema || !EqualDevice(att.Device, r.Device) || att.Profile != profile.ID || !CompatibleBundle(profile, att.Bundle) {
 		return p, errors.New("подготовленные аппаратные входы отличаются от профиля/экземпляра")
-	}
-	if att.Registry == nil && profile.LegacyCompatible() {
-		p.Registry = nil
 	}
 	if e := bindBootFirmware(ctx, d, r, profile, att, images, &p); e != nil {
 		return p, e
