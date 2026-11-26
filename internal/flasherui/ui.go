@@ -25,6 +25,7 @@ type Session struct {
 	Closer    io.Closer
 	Mapper    string
 	ActiveDTB []byte
+	USBPath   string
 }
 type Config struct {
 	Registry       *flasher.RegistryClient
@@ -241,6 +242,13 @@ func (u *UI) work(title string, fn func(context.Context) error, next func(error)
 	}()
 }
 func (u *UI) failed(e error) {
+	var research *flasher.ResearchRequired
+	if errors.As(e, &research) {
+		u.closeSession()
+		u.deviceChecked = false
+		u.failed(&ConnectionStep{Message: l10n.Text("ui.research_required")})
+		return
+	}
 	var step *ConnectionStep
 	if errors.As(e, &step) {
 		u.modal(step.Message, []string{l10n.Text("ui.retry"), l10n.Text("ui.main_menu")}, func(i int) {
@@ -279,12 +287,16 @@ func (u *UI) support(result flasher.Inspection, after func()) {
 }
 func (u *UI) supportAction(result flasher.Inspection, label string, after func()) {
 	message := l10n.Diagnostic(flasher.SupportMessage(result.Archive))
-	if result.Report.Resolution.Profile != "" {
+	if len(result.Report.Resolution.Reasons) > 0 {
 		reasons := make([]string, len(result.Report.Resolution.Reasons))
 		for i, reason := range result.Report.Resolution.Reasons {
 			reasons[i] = l10n.Diagnostic(reason)
 		}
-		message = l10n.Text("ui.board_identified") + result.Report.Resolution.Profile + l10n.Text("ui.installation_preparation_stopped") + strings.Join(reasons, "; ") + l10n.Text("ui.support_report") + result.Archive + l10n.Text("ui.attach_the_archive_to_an_issue_in_the_microstick")
+		if result.Report.Resolution.Profile != "" {
+			message = l10n.Text("ui.board_identified") + result.Report.Resolution.Profile + l10n.Text("ui.installation_preparation_stopped") + strings.Join(reasons, "; ") + l10n.Text("ui.support_report") + result.Archive + l10n.Text("ui.attach_the_archive_to_an_issue_in_the_microstick")
+		} else {
+			message += "\n\n" + strings.Join(reasons, "; ")
+		}
 	}
 	text := tview.NewTextView().SetText(message).SetWordWrap(true)
 	text.SetBorder(true).SetTitle(l10n.Text("ui.add_board_support"))
@@ -425,13 +437,20 @@ func (u *UI) start(action int) {
 				profiles = append(profiles, flasher.SimulatorProfile(r))
 			}
 		}
-		var detect func(flasher.HardwareReport) (flasher.HardwareProfile, error)
+		options := flasher.InspectionOptions{ActiveDTB: s.ActiveDTB, Profiles: profiles, RequireResearch: !u.cfg.Simulation && s.USBPath != ""}
 		if !u.cfg.Simulation {
-			detect = func(r flasher.HardwareReport) (flasher.HardwareProfile, error) {
-				return dev.DetectAutomaticProfile(u.cfg.Paths, r)
+			options.ResolveActive = func(r flasher.HardwareReport) ([]byte, error) {
+				return dev.ResearchTree(u.cfg.Paths, r, s.USBPath, s.ActiveDTB, u.progress)
+			}
+			options.Detect = func(r flasher.HardwareReport) (flasher.HardwareProfile, error) {
+				profile, e := dev.DetectAutomaticProfile(u.cfg.Paths, r)
+				if e == nil {
+					e = dev.SaveDeviceResearch(u.cfg.Paths, r, r.ActiveDTB, profile.AutomaticInputs())
+				}
+				return profile, e
 			}
 		}
-		result, e = flasher.InspectWithFallback(ctx, s.Device, s.ActiveDTB, detect, func(ctx context.Context) ([]flasher.HardwareProfile, error) {
+		options.Refresh = func(ctx context.Context) ([]flasher.HardwareProfile, error) {
 			if u.cfg.Registry != nil && action != 2 {
 				u.progress(flasher.Progress{Stage: "registry", Message: l10n.Text("registry.refresh")})
 				if err := u.cfg.Registry.Refresh(ctx); err != nil {
@@ -443,7 +462,8 @@ func (u *UI) start(action int) {
 			}
 			u.cfg.Profiles = profiles
 			return profiles, ctx.Err()
-		}, filepath.Join(u.cfg.Paths.Work, "board-reports"), u.progress)
+		}
+		result, e = flasher.InspectWithOptions(ctx, s.Device, options, filepath.Join(u.cfg.Paths.Work, "board-reports"), u.progress)
 		if result.Profile != nil {
 			kept := u.cfg.Profiles[:0]
 			for _, p := range u.cfg.Profiles {

@@ -91,6 +91,9 @@ Tree collection displays node/property counts and has a two-minute total limit
 and a ten-second response timeout. Ctrl+C cancels collection.
 The tree stays in the private workspace. Switch to EDL on the same USB port when
 prompted; the flasher does not reboot the device automatically.
+The first EDL inspection binds the saved tree to the measured device, storage
+layout and source trees. Subsequent sessions reuse that research after checking
+those inputs. A fresh ADB investigation replaces the previous capture.
 
 A unique or hardware-equivalent tree in the boot image can be used directly in
 EDL. Non-equivalent variants need a live tree or a matching catalog recipe.
@@ -112,7 +115,11 @@ Kernel, module and firmware downloads use the resource catalog.
 Catalog entries describe supported boards and include the installation recipe.
 Board profiles update independently of the application. **Board registry** shows
 the active snapshot and offers refresh or import of a signed offline file.
-An attempt that needs a catalog profile refreshes it and matches the device again.
+An attempt first uses saved research or investigates the available source trees,
+then checks the verified local catalog. It refreshes the catalog only when those
+inputs cannot resolve a usable profile. If live research is missing, the installer
+requests normal ADB mode and collects it automatically when the action is retried;
+the same action continues after a manual return to EDL.
 An unavailable update retains the verified cache or bundled profiles. A recognized
 board can require a newer flasher or firmware bundle; the installer displays its
 requirements and the [release page](https://github.com/microstick-os/microstick/releases).

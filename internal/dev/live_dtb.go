@@ -23,8 +23,10 @@ import (
 const liveTreeLimit = 8 << 20
 
 type LiveTree struct {
-	USBPath string `json:"usb_path"`
-	DTB     []byte `json:"dtb"`
+	USBPath string              `json:"usb_path"`
+	DTB     []byte              `json:"dtb"`
+	Device  *flasher.DeviceInfo `json:"device,omitempty"`
+	Sources string              `json:"sources_sha256,omitempty"`
 }
 type adbHost struct{ address string }
 
@@ -337,7 +339,7 @@ func captureLiveTree(ctx context.Context, p Paths, usbPath string, a adbHost, em
 	if e = flasher.ValidateActiveDTB(b); e != nil {
 		return nil, fmt.Errorf("Active device tree is invalid: %w", e)
 	}
-	live := &LiveTree{found[0].Path, b}
+	live := &LiveTree{USBPath: found[0].Path, DTB: b}
 	dir := filepath.Join(p.Work, "buildroot-private/live-device-trees")
 	if e = os.MkdirAll(dir, 0700); e != nil {
 		return nil, e
@@ -347,22 +349,39 @@ func captureLiveTree(ctx context.Context, p Paths, usbPath string, a adbHost, em
 	}
 	return live, nil
 }
-func LoadLiveTree(p Paths, usbPath string) (*LiveTree, error) {
+func LoadLiveTree(p Paths, usbPath string, reports ...flasher.HardwareReport) (*LiveTree, error) {
 	if usbPath == "" {
 		return nil, nil
 	}
-	var live LiveTree
-	e := readJSON(filepath.Join(p.Work, "buildroot-private/live-device-trees", digest([]byte(usbPath))+".json"), &live)
-	if os.IsNotExist(e) {
-		return nil, nil
-	}
+	root := filepath.Join(p.Work, "buildroot-private/live-device-trees")
+	paths, e := filepath.Glob(filepath.Join(root, "*.json"))
 	if e != nil {
 		return nil, e
 	}
-	if live.USBPath != usbPath || len(live.DTB) > liveTreeLimit {
-		return nil, errors.New("saved live DT connection differs")
+	var found *LiveTree
+	for _, path := range paths {
+		var live LiveTree
+		if e = readResearchJSON(path, &live); e != nil {
+			return nil, e
+		}
+		if filepath.Base(path) != digest([]byte(live.USBPath))+".json" {
+			return nil, errors.New("saved live DT connection differs")
+		}
+		if normalizeUSBPath(live.USBPath) != normalizeUSBPath(usbPath) {
+			continue
+		}
+		if len(reports) > 0 && live.Device != nil && (!flasher.EqualDevice(*live.Device, reports[0].Device) || live.Sources != flasher.SourceSetFingerprint(reports[0].Variants)) {
+			continue
+		}
+		if len(live.DTB) > liveTreeLimit {
+			return nil, errors.New("saved live DT exceeds limit")
+		}
+		if found != nil && flasher.HashBytes(found.DTB) != flasher.HashBytes(live.DTB) {
+			return nil, errors.New("Multiple captures match the USB connection; repeat device research")
+		}
+		found = &live
 	}
-	return &live, nil
+	return found, nil
 }
 
 // DetectAutomaticProfile uses the common runtime inputs without a model entry.

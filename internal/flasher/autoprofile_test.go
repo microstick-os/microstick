@@ -426,3 +426,77 @@ func TestAutomaticProfilesRetainDifferentBoardsAndReconstructInputs(t *testing.T
 		})
 	}
 }
+
+func TestInspectionUsesLocalCatalogWithoutRefreshing(t *testing.T) {
+	active := automaticTree(t, true, 79)
+	f, _ := automaticInspectionFixture(t, active, false)
+	report, e := Inspect(testCtx, f.d, nil, nil)
+	if e != nil {
+		t.Fatal(e)
+	}
+	local := fixtureProfile(report)
+	calls := 0
+	got, e := InspectWithOptions(testCtx, f.d, InspectionOptions{
+		ActiveDTB: active,
+		Detect: func(HardwareReport) (HardwareProfile, error) {
+			return HardwareProfile{}, &UnsupportedInput{Code: "active-dtb-binding", Message: "unsupported synthetic component"}
+		},
+		Profiles: []HardwareProfile{local},
+		Refresh: func(context.Context) ([]HardwareProfile, error) {
+			calls++
+			return nil, errors.New("unexpected network")
+		},
+		RequireResearch: true,
+	}, t.TempDir(), nil)
+	if e != nil || got.Report.Resolution.Profile != local.ID || calls != 0 {
+		t.Fatal("local profile caused network access", e, got.Report.Resolution, calls)
+	}
+}
+
+func TestUnknownDeviceRequestsResearchBeforeRegistry(t *testing.T) {
+	f := newFixture(t)
+	file, e := os.OpenFile(filepath.Join(f.root, "user"), os.O_WRONLY, 0)
+	if e != nil {
+		t.Fatal(e)
+	}
+	part := f.report.GPT.Partitions[0]
+	if _, e = file.WriteAt(make([]byte, part.Range.Length), int64(part.Range.Offset)); e != nil {
+		t.Fatal(e)
+	}
+	file.Close()
+	calls := 0
+	got, e := InspectWithOptions(testCtx, f.d, InspectionOptions{
+		Detect: func(HardwareReport) (HardwareProfile, error) {
+			t.Error("detection without source")
+			return HardwareProfile{}, nil
+		},
+		RequireResearch: true,
+		Refresh:         func(context.Context) ([]HardwareProfile, error) { calls++; return nil, nil },
+	}, t.TempDir(), nil)
+	var needed *ResearchRequired
+	if !errors.As(e, &needed) || calls != 0 || got.Archive != "" {
+		t.Fatal("unknown device skipped automatic research", e, calls, got.Archive)
+	}
+}
+
+func TestRegistryRefreshOccursOnlyAfterCompleteResearchAndLocalMiss(t *testing.T) {
+	active := automaticTree(t, true, 79)
+	f, _ := automaticInspectionFixture(t, active, false)
+	report, e := Inspect(testCtx, f.d, nil, nil)
+	if e != nil {
+		t.Fatal(e)
+	}
+	local := fixtureProfile(report)
+	calls := 0
+	got, e := InspectWithOptions(testCtx, f.d, InspectionOptions{
+		ResolveActive: func(HardwareReport) ([]byte, error) { return active, nil },
+		Detect: func(HardwareReport) (HardwareProfile, error) {
+			return HardwareProfile{}, &UnsupportedInput{Code: "active-dtb-binding", Message: "missing component rule"}
+		},
+		RequireResearch: true,
+		Refresh:         func(context.Context) ([]HardwareProfile, error) { calls++; return []HardwareProfile{local}, nil },
+	}, t.TempDir(), nil)
+	if e != nil || got.Report.Resolution.Profile != local.ID || calls != 1 {
+		t.Fatal("necessary fallback failed", e, got.Report.Resolution, calls)
+	}
+}

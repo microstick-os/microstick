@@ -175,7 +175,7 @@ func TestSavedLiveDeviceTreeIsBoundToUSBPath(t *testing.T) {
 	p := Paths{Work: t.TempDir()}
 	dir := filepath.Join(p.Work, "buildroot-private/live-device-trees")
 	os.MkdirAll(dir, 0700)
-	live := LiveTree{"@3-2.4", []byte("synthetic")}
+	live := LiveTree{USBPath: "@3-2.4", DTB: []byte("synthetic")}
 	writeJSONAtomic(filepath.Join(dir, digest([]byte(live.USBPath))+".json"), live)
 	got, e := LoadLiveTree(p, live.USBPath)
 	if e != nil || got == nil || !bytes.Equal(got.DTB, live.DTB) {

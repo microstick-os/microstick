@@ -481,3 +481,39 @@ func TestNoConnectionsDoesNotOpenOrCapture(t *testing.T) {
 		t.Fatal("empty discovery did not settle")
 	}
 }
+
+func TestInstallResearchStepKeepsActionAndOffersAutomaticRetry(t *testing.T) {
+	u, screen := startUI(t)
+	var retried int
+	u.app.QueueUpdateDraw(func() {
+		u.deviceChecked = true
+		u.retry = func() {
+			retried++
+			if u.deviceChecked {
+				t.Error("research retry did not re-enumerate")
+			}
+		}
+		u.failed(&flasher.ResearchRequired{})
+	})
+	flushUI(u)
+	if strings.Contains(screenText(screen), "Плата неизвестна") || !strings.Contains(screenText(screen), "ADB") {
+		t.Fatal("research request became unknown board")
+	}
+	press(t, u, tcell.KeyEnter)
+	if retried != 1 {
+		t.Fatal("install continuation lost", retried)
+	}
+}
+
+func TestUnsupportedResearchShowsActualCauseWithoutMatchedProfile(t *testing.T) {
+	u, _ := startUI(t)
+	cause := "synthetic component binding is missing"
+	u.app.QueueUpdateDraw(func() {
+		u.support(flasher.Inspection{Archive: "/tmp/report.tar.gz", Report: flasher.HardwareReport{Resolution: flasher.Resolution{Status: "unsupported", Reasons: []string{cause}}}}, u.menu)
+		_, p := u.pages.GetFrontPage()
+		text := p.(*shell).body.(*tview.Flex).GetItem(0).(*tview.TextView).GetText(false)
+		if !strings.Contains(text, cause) {
+			t.Error("actual automatic profiling cause hidden")
+		}
+	})
+}

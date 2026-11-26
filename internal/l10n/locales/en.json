@@ -339,5 +339,9 @@
   "ui.adb_offline": "The ADB connection is offline. Reconnect the device and retry discovery.",
   "registry.unavailable": "Registry unavailable. Automatic profiling does not require the registry.",
   "registry.update_failed": "Registry update failed.",
-  "registry.update_success": "Registry updated."
+  "registry.update_success": "Registry updated.",
+  "ui.using_saved_research": "Using saved device research",
+  "ui.binding_saved_research": "Binding saved research to the connected device",
+  "ui.research_required": "Automatic profiling needs device research. Boot the device normally and connect it with ADB access to the same USB port. Select Retry to start research automatically, then resume after manually switching to EDL.",
+  "diagnostics.deriving_profile_from_research": "Deriving a profile from device research"
 }

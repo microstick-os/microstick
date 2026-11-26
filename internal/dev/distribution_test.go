@@ -295,10 +295,30 @@ func TestAutomaticProfilePreparesCompleteInstallationWithoutCatalog(t *testing.T
 		t.Fatal(e)
 	}
 	r.Variants = []flasher.DTVariant{v}
+	adb, _ := fakeADB(t, tree)
+	if _, e = captureLiveTree(context.Background(), p, "@3-2.4", adb); e != nil {
+		t.Fatal("capture before EDL", e)
+	}
+	activeTree, e := ResearchTree(p, r, "usb:003-02.004", nil, nil)
+	if e != nil || !bytes.Equal(activeTree, tree) {
+		t.Fatal("installation lost ADB research after EDL", e)
+	}
+	r.ActiveDTB = activeTree
 	profile, e := DetectAutomaticProfile(p, r)
 	if e != nil {
 		t.Fatal("common runtime could not derive profile", e)
 	}
+	if e = SaveDeviceResearch(p, r, r.ActiveDTB, profile.AutomaticInputs()); e != nil {
+		t.Fatal(e)
+	}
+	if e = os.RemoveAll(filepath.Join(p.Work, "buildroot-private/live-device-trees")); e != nil {
+		t.Fatal(e)
+	}
+	reloaded, e := ResearchTree(Paths{Work: p.Work}, r, "@4-3", nil, nil)
+	if e != nil || !bytes.Equal(reloaded, tree) {
+		t.Fatal("new installation session lost saved research", e)
+	}
+	r.ActiveDTB = reloaded
 	r.Resolution = flasher.Resolve(r, []flasher.HardwareProfile{profile})
 	if r.Resolution.Status != "matched" {
 		t.Fatal(r.Resolution)

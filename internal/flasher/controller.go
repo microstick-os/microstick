@@ -5,6 +5,23 @@ import (
 	"errors"
 )
 
+// ResearchRequired requests a live hardware description before catalog downloads.
+// The caller resumes its current action after the manual transport transition.
+type ResearchRequired struct{}
+
+func (*ResearchRequired) Error() string {
+	return "Для автопрофилирования нужно исследование устройства через ADB"
+}
+
+type InspectionOptions struct {
+	ActiveDTB       []byte
+	ResolveActive   func(HardwareReport) ([]byte, error)
+	Detect          func(HardwareReport) (HardwareProfile, error)
+	Profiles        []HardwareProfile
+	Refresh         func(context.Context) ([]HardwareProfile, error)
+	RequireResearch bool
+}
+
 type Inspection struct {
 	Report  HardwareReport
 	Archive string
@@ -24,12 +41,23 @@ func InspectWithActiveTree(ctx context.Context, d Reader, profiles []HardwarePro
 // InspectWithFallback derives a component profile before consulting the catalog.
 // A fallback cannot bypass device integrity or boot security failures.
 func InspectWithFallback(ctx context.Context, d Reader, active []byte, detect func(HardwareReport) (HardwareProfile, error), fallback func(context.Context) ([]HardwareProfile, error), reportsDir string, progress Emit) (Inspection, error) {
+	return InspectWithOptions(ctx, d, InspectionOptions{ActiveDTB: active, Detect: detect, Refresh: fallback}, reportsDir, progress)
+}
+
+func InspectWithOptions(ctx context.Context, d Reader, o InspectionOptions, reportsDir string, progress Emit) (Inspection, error) {
 	r, e := Inspect(ctx, d, nil, progress)
 	result := Inspection{Report: r}
 	if e != nil {
 		return result, e
 	}
-	if detect != nil {
+	active := o.ActiveDTB
+	if o.ResolveActive != nil {
+		active, e = o.ResolveActive(r)
+		if e != nil {
+			return result, e
+		}
+	}
+	if o.Detect != nil {
 		if len(active) == 0 {
 			active, e = SourceDTB(ctx, d, r)
 			if e != nil {
@@ -47,8 +75,9 @@ func InspectWithFallback(ctx context.Context, d Reader, active []byte, detect fu
 			if e != nil {
 				return Inspection{Report: r}, e
 			}
+			emit(progress, "autoprofile", 0, 0, -1, "Определение профиля по исследованию устройства")
 			var profile HardwareProfile
-			profile, e = detect(r)
+			profile, e = o.Detect(r)
 			if e == nil {
 				r.Resolution = Resolve(r, []HardwareProfile{profile})
 				if r.Resolution.Status != "matched" {
@@ -69,19 +98,25 @@ func InspectWithFallback(ctx context.Context, d Reader, active []byte, detect fu
 		}
 		r.InputFailure = input.Code
 		r.Resolution.Reasons = append(r.Resolution.Reasons, input.Message)
+		emit(progress, "autoprofile", 0, 0, -1, input.Message)
 	}
 	if e = ctx.Err(); e != nil {
 		return Inspection{Report: r}, e
 	}
-	var profiles []HardwareProfile
-	if fallback != nil {
-		profiles, e = fallback(ctx)
+	reasons := append([]string(nil), r.Resolution.Reasons...)
+	r.Resolution = Resolve(r, o.Profiles)
+	localUsable := r.Resolution.Status == "matched" || r.Resolution.Status == "flasher-update-required" || r.Resolution.Status == "firmware-update-required"
+	if !localUsable && len(active) == 0 && o.RequireResearch {
+		return Inspection{Report: r}, &ResearchRequired{}
+	}
+	profiles := o.Profiles
+	if !localUsable && o.Refresh != nil {
+		profiles, e = o.Refresh(ctx)
 		if e != nil {
 			return Inspection{Report: r}, e
 		}
+		r.Resolution = Resolve(r, profiles)
 	}
-	reasons := r.Resolution.Reasons
-	r.Resolution = Resolve(r, profiles)
 	if r.Resolution.Status == "matched" {
 		for _, profile := range profiles {
 			if profile.ID == r.Resolution.Profile && nativeIdentity(r.Device.Identity) {

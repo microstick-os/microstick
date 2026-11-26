@@ -22,7 +22,12 @@ var version = "development"
 
 func main() {
 	if e := run(os.Args[1:]); e != nil {
-		fmt.Fprintln(os.Stderr, "microstick-flasher:", l10n.Diagnostic(e.Error()))
+		var research *flasher.ResearchRequired
+		message := l10n.Diagnostic(e.Error())
+		if errors.As(e, &research) {
+			message = l10n.Text("ui.research_required")
+		}
+		fmt.Fprintln(os.Stderr, "microstick-flasher:", message)
 		os.Exit(1)
 	}
 }
@@ -267,10 +272,6 @@ func run(args []string) error {
 		if e != nil {
 			return flasherui.Session{}, e
 		}
-		saved, e := dev.LoadLiveTree(p, *serial)
-		if e != nil {
-			return flasherui.Session{}, e
-		}
 		if progress != nil {
 			progress(flasher.Progress{Stage: "edl", Message: l10n.Text("ui.connecting_and_identifying_the_device")})
 		}
@@ -300,9 +301,6 @@ func run(args []string) error {
 		}
 		timer.Stop()
 		var active []byte
-		if saved != nil {
-			active = saved.DTB
-		}
 		if *activeFile != "" {
 			active, e = readActiveFile()
 			if e != nil {
@@ -310,7 +308,7 @@ func run(args []string) error {
 				return flasherui.Session{}, e
 			}
 		}
-		return flasherui.Session{Device: d, Closer: d, Mapper: mapper, ActiveDTB: active}, nil
+		return flasherui.Session{Device: d, Closer: d, Mapper: mapper, ActiveDTB: active, USBPath: selected.Path}, nil
 	}
 	if *operation == "tui" {
 		cfg := flasherui.Config{Paths: p, Open: open, Profiles: profiles, Simulation: *sim, Registry: client, FlasherVersion: clientVersion, RegistryError: registryError}
@@ -365,10 +363,20 @@ func run(args []string) error {
 	if *operation == "backup" {
 		reportDir = filepath.Join(filepath.Dir(out), "board-reports")
 	}
-	result, e := flasher.InspectWithFallback(ctx, session.Device, session.ActiveDTB, func(r flasher.HardwareReport) (flasher.HardwareProfile, error) {
-		return dev.DetectAutomaticProfile(p, r)
-	}, func(ctx context.Context) ([]flasher.HardwareProfile, error) {
+	options := flasher.InspectionOptions{ActiveDTB: session.ActiveDTB, Profiles: profiles, RequireResearch: *image == ""}
+	options.ResolveActive = func(r flasher.HardwareReport) ([]byte, error) {
+		return dev.ResearchTree(p, r, session.USBPath, session.ActiveDTB, progress)
+	}
+	options.Detect = func(r flasher.HardwareReport) (flasher.HardwareProfile, error) {
+		profile, err := dev.DetectAutomaticProfile(p, r)
+		if err == nil {
+			err = dev.SaveDeviceResearch(p, r, r.ActiveDTB, profile.AutomaticInputs())
+		}
+		return profile, err
+	}
+	options.Refresh = func(ctx context.Context) ([]flasher.HardwareProfile, error) {
 		if client != nil {
+			progress(flasher.Progress{Stage: "registry", Message: l10n.Text("registry.refresh")})
 			if err := client.Refresh(ctx); err != nil {
 				fmt.Fprintln(os.Stderr, l10n.Diagnostic(client.Warning()))
 			}
@@ -377,7 +385,8 @@ func run(args []string) error {
 			fmt.Fprintln(os.Stderr, l10n.Diagnostic(registryError.Error()))
 		}
 		return profiles, ctx.Err()
-	}, reportDir, progress)
+	}
+	result, e := flasher.InspectWithOptions(ctx, session.Device, options, reportDir, progress)
 	if result.Archive != "" {
 		fmt.Println(l10n.Text("cli.support_report"), result.Archive)
 	}
